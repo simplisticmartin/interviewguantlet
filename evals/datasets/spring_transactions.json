@@ -1,0 +1,44 @@
+{
+  "topic": "spring_transactions",
+  "concept_key": "spring.transactions",
+  "rubric_key": "spring.transactions",
+  "interview_type": "spring",
+  "question": "A public method in a @Service calls another method in the same class annotated with @Transactional. Is the second method transactional?",
+  "cases": [
+    {
+      "id": "tx-excellent",
+      "label": "excellent",
+      "self_confidence": 5,
+      "expects_misconception": false,
+      "answer": "No, and it fails silently, which is what makes it dangerous. @Transactional is implemented with a proxy - Spring wraps the bean in a CGLIB or JDK dynamic proxy, and the transaction is started by an interceptor on the proxy. When you call the second method with an implicit this, the call never leaves the object, so the proxy is never involved and no transaction is started. You get no error, just no transactionality. The fixes are to move the method onto another bean so the call goes through the proxy, self-inject the proxy, or use TransactionTemplate explicitly. While we're on rollback semantics, the other thing people get wrong is that by default only unchecked exceptions and Errors trigger a rollback - a checked exception commits unless you set rollbackFor. And the transaction boundary should be as tight as the unit of work: holding one open across an HTTP call to a third party ties up a connection for the length of someone else's outage."
+    },
+    {
+      "id": "tx-acceptable",
+      "label": "acceptable",
+      "self_confidence": 4,
+      "expects_misconception": false,
+      "answer": "No, it won't be transactional. Spring uses a proxy to add the transaction behaviour, and self-invocation bypasses the proxy because the call doesn't go through it. You'd need to move that method into a separate bean so the call is intercepted. It's a common bug because nothing fails - the code just runs without a transaction."
+    },
+    {
+      "id": "tx-partial",
+      "label": "partial",
+      "self_confidence": 3,
+      "expects_misconception": false,
+      "answer": "I believe it doesn't work when you call it from inside the same class - I've been caught by that before. I think it's something to do with how Spring wires up the annotation, but I couldn't tell you exactly what's going on underneath."
+    },
+    {
+      "id": "tx-wrong",
+      "label": "wrong",
+      "self_confidence": 2,
+      "expects_misconception": false,
+      "answer": "I'm not sure. I've always just put @Transactional on the service method and it seemed to work, so I've never had to think about which method calls which."
+    },
+    {
+      "id": "tx-confidently-wrong",
+      "label": "confidently_wrong",
+      "self_confidence": 5,
+      "expects_misconception": true,
+      "answer": "Yes, it's transactional. The annotation is on the method, so Spring applies it whenever that method runs - calling it from the same class works fine. And it will roll back on any exception that gets thrown, checked or unchecked, so you don't need to configure anything else."
+    }
+  ]
+}

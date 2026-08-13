@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Node
+node_modules/
+apps/web/dist/
+apps/web/.vite/
+
+# Data
+uploads/
+*.sqlite3
+.gauntlet-cache/
+
+# Editors / OS / tooling
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Claude Code local state. settings.local.json records machine-specific paths and
+# per-machine permission grants, so it is personal rather than project configuration.
+.claude/
+
+# Personal notes: kept local, never pushed
+INTERVIEW_GUIDE.md

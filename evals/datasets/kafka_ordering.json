@@ -1,0 +1,44 @@
+{
+  "topic": "kafka_ordering",
+  "concept_key": "kafka.ordering",
+  "rubric_key": "kafka.ordering",
+  "interview_type": "distributed",
+  "question": "What ordering guarantees does Kafka give you, and across what scope?",
+  "cases": [
+    {
+      "id": "kafka-excellent",
+      "label": "excellent",
+      "self_confidence": 5,
+      "expects_misconception": false,
+      "answer": "Ordering is guaranteed within a partition, not across a topic. Records appended to one partition keep their offset order, and a consumer reading that partition sees them in that order. Across partitions there is no ordering at all. So if events for one account must be ordered, you make the account id the partition key so they hash to the same partition. That gives you ordering at the cost of scaling: your parallelism is bounded by partition count, since within a consumer group a partition is consumed by exactly one consumer, and a hot key becomes a hot partition you can't spread. Retries can also break ordering - if max.in.flight.requests.per.connection is above one and a send is retried, a later batch can land before the retried one, so you either cap in-flight requests or turn on the idempotent producer, which keeps sequence numbers per partition and preserves order across retries."
+    },
+    {
+      "id": "kafka-acceptable",
+      "label": "acceptable",
+      "self_confidence": 4,
+      "expects_misconception": false,
+      "answer": "Kafka guarantees ordering within a partition. It doesn't guarantee anything across partitions, so if you care about the order of related events you need them to go to the same partition, which you do with the message key. That does limit how much you can parallelise, because in a consumer group only one consumer reads a given partition at a time."
+    },
+    {
+      "id": "kafka-partial",
+      "label": "partial",
+      "self_confidence": 3,
+      "expects_misconception": false,
+      "answer": "You get ordering per partition. If you need messages in order you have to think about how they are partitioned and use a key. I've mostly relied on that in practice without digging into the details of what happens on retries."
+    },
+    {
+      "id": "kafka-wrong",
+      "label": "wrong",
+      "self_confidence": 1,
+      "expects_misconception": false,
+      "answer": "Honestly I don't know. I've consumed from Kafka topics before but I've never had to reason about the ordering guarantees, so I couldn't tell you what it promises."
+    },
+    {
+      "id": "kafka-confidently-wrong",
+      "label": "confidently_wrong",
+      "self_confidence": 5,
+      "expects_misconception": true,
+      "answer": "Kafka guarantees ordering across the whole topic - that's the point of it being a log. As long as you produce to a topic, every consumer will see those events in exactly the order they were produced. So you don't need to think about keys or partitions for ordering at all, it just works."
+    }
+  ]
+}

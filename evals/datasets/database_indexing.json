@@ -1,0 +1,44 @@
+{
+  "topic": "database_indexing",
+  "concept_key": "database.indexing",
+  "rubric_key": "database.indexing",
+  "interview_type": "database",
+  "question": "You have an index on (customer_id, created_at). Which queries can use it, and why: filter by customer_id; filter by created_at; filter by both?",
+  "cases": [
+    {
+      "id": "idx-excellent",
+      "label": "excellent",
+      "self_confidence": 5,
+      "expects_misconception": false,
+      "answer": "A composite index is a B-tree sorted on the tuple, so it's usable left to right - the leftmost prefix rule. Filtering on customer_id alone uses it, because customer_id is the first column and the matching rows are contiguous. Filtering on both uses it best: it seeks to the customer and then range-scans created_at within them. Filtering on created_at alone generally can't use it as a seek, because the entries are ordered by customer first, so the timestamps are scattered across the whole index - the planner will usually prefer a sequential scan, though it may do an index-only scan if the index happens to cover the query and the table is wide. Whether it's used at all also depends on selectivity: if one customer owns most of the table the planner will ignore the index because a scan is cheaper. And the index isn't free - it's maintained on every insert, update and delete and it costs storage, so I'd confirm with EXPLAIN ANALYZE that it's actually being used before keeping it."
+    },
+    {
+      "id": "idx-acceptable",
+      "label": "acceptable",
+      "self_confidence": 4,
+      "expects_misconception": false,
+      "answer": "customer_id on its own will use the index, and both together will use it. created_at on its own won't, because it's the second column and composite indexes work left to right - the order of the columns matters. You'd need a separate index on created_at for that query. I'd check with EXPLAIN to see what the planner actually chose rather than assume."
+    },
+    {
+      "id": "idx-partial",
+      "label": "partial",
+      "self_confidence": 3,
+      "expects_misconception": false,
+      "answer": "I think querying by customer_id uses the index since it's first in the definition. I'm less sure about created_at on its own - I'd probably run EXPLAIN and see what happens. Indexes are B-trees so they help with lookups."
+    },
+    {
+      "id": "idx-wrong",
+      "label": "wrong",
+      "self_confidence": 2,
+      "expects_misconception": false,
+      "answer": "I'd have to test it. I usually just add indexes on the columns in the where clause and check whether the query gets faster."
+    },
+    {
+      "id": "idx-confidently-wrong",
+      "label": "confidently_wrong",
+      "self_confidence": 5,
+      "expects_misconception": true,
+      "answer": "All three use it. The column order doesn't matter in a composite index - the database can use it for any column in the index, that's the whole point of including both. And in general more indexes is always faster, so if a query is slow you index everything in the where clause."
+    }
+  ]
+}

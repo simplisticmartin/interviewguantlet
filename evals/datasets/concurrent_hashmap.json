@@ -1,0 +1,44 @@
+{
+  "topic": "concurrent_hashmap",
+  "concept_key": "java.concurrency.concurrent_hashmap",
+  "rubric_key": "java.concurrency.concurrent_hashmap",
+  "interview_type": "java",
+  "question": "How does ConcurrentHashMap differ from wrapping a HashMap in Collections.synchronizedMap?",
+  "cases": [
+    {
+      "id": "chm-excellent",
+      "label": "excellent",
+      "self_confidence": 5,
+      "expects_misconception": false,
+      "answer": "synchronizedMap puts one monitor around every operation, so the whole map is a single point of contention - two threads touching completely unrelated keys still serialise. ConcurrentHashMap doesn't take a global lock. On the fast path an insert into an empty bin is a CAS, and when it does need to lock it synchronises on the bin head, so writers to different buckets proceed in parallel. Reads are effectively lock free because the nodes' value and next fields are volatile, so a reader never blocks behind a writer. The trade-off is the iterator is weakly consistent: it won't throw ConcurrentModificationException, but it reflects the map at some point during traversal rather than a snapshot. It also rejects null keys and values, because with a synchronized map you can distinguish 'absent' from 'mapped to null' by locking, and here you can't. And crucially individual operations are atomic but compound ones aren't, so get-then-put still races - you use compute, merge or putIfAbsent for read-modify-write."
+    },
+    {
+      "id": "chm-acceptable",
+      "label": "acceptable",
+      "self_confidence": 4,
+      "expects_misconception": false,
+      "answer": "The synchronized wrapper locks the entire map for every call, so it becomes a bottleneck under concurrency. ConcurrentHashMap uses much more fine grained locking - it locks at the bucket level rather than the whole map, so different threads writing to different buckets don't block each other. Reads generally don't block at all. Iterating over it gives you a weakly consistent view rather than throwing. If you need to do something like increment a counter you should use compute or merge so the operation is atomic."
+    },
+    {
+      "id": "chm-partial",
+      "label": "partial",
+      "self_confidence": 3,
+      "expects_misconception": false,
+      "answer": "ConcurrentHashMap is designed for concurrent access and performs better than a synchronized map when you have several threads. It doesn't lock everything at once so you get more throughput. I'd use it for any shared cache in a multithreaded service."
+    },
+    {
+      "id": "chm-wrong",
+      "label": "wrong",
+      "self_confidence": 2,
+      "expects_misconception": false,
+      "answer": "I'm not really sure of the difference - I'd have to look it up. I know you're supposed to use ConcurrentHashMap when there are threads involved, but I couldn't tell you what it does differently."
+    },
+    {
+      "id": "chm-confidently-wrong",
+      "label": "confidently_wrong",
+      "self_confidence": 5,
+      "expects_misconception": true,
+      "answer": "ConcurrentHashMap is basically a synchronized HashMap - it wraps the same structure and synchronizes the methods, so only one thread can be inside the map at a time. That's what makes it safe. And because it's synchronized, everything you do on it is atomic, so you can safely do a get and then a put and nothing will interleave."
+    }
+  ]
+}

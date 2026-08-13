@@ -1,0 +1,44 @@
+{
+  "topic": "hashmap",
+  "concept_key": "java.collections.hashmap",
+  "rubric_key": "java.collections.hashmap",
+  "interview_type": "java",
+  "question": "Walk me through what happens inside a HashMap when I call put with a key that collides with an existing entry.",
+  "cases": [
+    {
+      "id": "hashmap-excellent",
+      "label": "excellent",
+      "self_confidence": 5,
+      "expects_misconception": false,
+      "answer": "First it takes the key's hashCode and spreads the high bits into the low bits, so a hash function that only varies in its upper bits doesn't pile every key into one bucket. The bucket index is (n-1) & hash, which works because the table length is always a power of two, so it's a cheap mask instead of a modulo. If that bucket already has an entry, we walk the chain comparing hashes first and then equals; if a key is equal we replace the value, otherwise we append a new node. Once a bin gets past around eight entries and the table is big enough, it treeifies into a red-black tree so a pathological bucket degrades to O(log n) rather than O(n). Separately, when size crosses capacity times the load factor of 0.75, the table resizes to double and everything is rehashed, which is amortised but is a real latency spike if you size the map badly up front. So lookup is O(1) on average, O(log n) worst case after treeification."
+    },
+    {
+      "id": "hashmap-acceptable",
+      "label": "acceptable",
+      "self_confidence": 4,
+      "expects_misconception": false,
+      "answer": "It computes the hashCode of the key and uses that to work out which bucket the entry belongs in. If something is already in that bucket you get a collision, and the entries are kept in a linked list in that bucket. It uses equals to tell whether it's actually the same key or just a hash collision - if it's the same key the value is overwritten, otherwise the new entry is added to the chain. When the map gets too full relative to its load factor it resizes and rehashes everything into a bigger table. Lookups are constant time on average, but degrade if lots of keys collide."
+    },
+    {
+      "id": "hashmap-partial",
+      "label": "partial",
+      "self_confidence": 3,
+      "expects_misconception": false,
+      "answer": "The key gets hashed and that decides the bucket. If two keys land in the same bucket that's a collision, and they get stored together in that bucket in a linked list. It uses equals to work out which one you actually asked for. Lookup is normally O(1)."
+    },
+    {
+      "id": "hashmap-wrong",
+      "label": "wrong",
+      "self_confidence": 2,
+      "expects_misconception": false,
+      "answer": "I think the map stores the entries in order and searches through them when you look something up. I've used HashMap a lot but I've never really looked at how it works underneath, so I'm not sure what happens on a collision."
+    },
+    {
+      "id": "hashmap-confidently-wrong",
+      "label": "confidently_wrong",
+      "self_confidence": 5,
+      "expects_misconception": true,
+      "answer": "HashMap lookup is always O(1), that's guaranteed by the data structure - that's the whole point of hashing. Collisions are handled internally so you never have to think about them. And HashMap is thread safe, so you can share one across threads without any extra synchronisation."
+    }
+  ]
+}

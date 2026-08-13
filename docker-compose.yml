@@ -1,0 +1,76 @@
+# Gauntlet local stack.
+#
+#   docker compose up -d db redis      # just the data layer (what you need for `make dev`)
+#   docker compose --profile full up   # data layer + api + web in containers
+#
+# Ports are deliberately non-default (5433 / 6380) so this never collides with a
+# Postgres or Redis you already run locally.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: gauntlet-db
+    environment:
+      POSTGRES_USER: gauntlet
+      POSTGRES_PASSWORD: gauntlet
+      POSTGRES_DB: gauntlet
+    ports:
+      - "5433:5432"
+    volumes:
+      - gauntlet-pgdata:/var/lib/postgresql/data
+      - ./infra/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gauntlet -d gauntlet"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: gauntlet-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    container_name: gauntlet-api
+    environment:
+      GAUNTLET_DATABASE_URL: postgresql+psycopg://gauntlet:gauntlet@db:5432/gauntlet
+      GAUNTLET_REDIS_URL: redis://redis:6379/0
+      GAUNTLET_LLM_PROVIDER: ${GAUNTLET_LLM_PROVIDER:-scripted}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GAUNTLET_SECRET_KEY: ${GAUNTLET_SECRET_KEY:-dev-secret-not-for-production}
+      GAUNTLET_CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./apps/web
+      dockerfile: ../../infra/web.Dockerfile
+    container_name: gauntlet-web
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  gauntlet-pgdata:

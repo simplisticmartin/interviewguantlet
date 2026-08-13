@@ -1,0 +1,90 @@
+[project]
+name = "gauntlet"
+version = "0.1.0"
+description = "Gauntlet - an adaptive, multi-agent technical interview simulator"
+requires-python = ">=3.12"
+readme = "README.md"
+
+dependencies = [
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.18",
+    "sse-starlette>=2.1",
+    # Config / validation
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # Persistence
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3.6",
+    "redis>=5.2",
+    # Orchestration
+    "langgraph>=0.2.60",
+    "langgraph-checkpoint-postgres>=2.0.9",
+    "langchain-core>=0.3.25",
+    # Providers
+    "anthropic>=0.42",
+    "openai>=1.58",
+    # Auth / security
+    "bcrypt>=4.2",
+    "pyjwt>=2.10",
+    # Document parsing
+    "pypdf>=5.1",
+    "python-docx>=1.1",
+    # Observability
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-pyyaml",
+]
+
+[project.scripts]
+gauntlet-seed = "gauntlet.content.seed:main"
+gauntlet-evals = "evals.runner:main"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gauntlet*", "apps*", "evals*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "venv", "alembic/versions", "apps/web", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "RUF"]
+# B008  - FastAPI's Depends()/File() defaults are the documented idiom.
+# RUF012- SQLAlchemy __table_args__ and Pydantic model_config are class-level by design.
+# SIM905- word lists read better as a wrapped string than as 60 quoted literals.
+ignore = ["B008", "RUF012", "SIM905"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["gauntlet", "apps"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_unused_ignores = false
+disallow_untyped_defs = true
+check_untyped_defs = true
+exclude = "(alembic/|apps/web/)"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
