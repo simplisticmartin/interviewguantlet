@@ -222,15 +222,68 @@ GAUNTLET_LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=your-key-here
 ```
 
-Anthropic and OpenAI are both supported, and switching is one line of configuration.
+### Choosing a model provider
+
+Around two dozen providers work, because most of them implement the same API format.
+Switching is one line of configuration, and no application code knows which vendor is
+answering.
+
+```bash
+gauntlet-providers            # list everything, and show what is currently configured
+gauntlet-providers --verbose  # with setup notes and documentation links
+```
+
+| Provider | Set | Notes |
+|---|---|---|
+| Anthropic | `GAUNTLET_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | Structured output enforced by the API |
+| OpenAI | `openai` + `OPENAI_API_KEY` | Also the usual source of embeddings |
+| Google Gemini | `gemini` + `GEMINI_API_KEY` | Key from Google AI Studio |
+| DeepSeek | `deepseek` + `DEEPSEEK_API_KEY` | Strong price to performance |
+| xAI Grok | `xai` + `XAI_API_KEY` | Key from console.x.ai |
+| Moonshot Kimi | `moonshot` + `MOONSHOT_API_KEY` | Kimi K2 |
+| Alibaba Qwen | `qwen` + `DASHSCOPE_API_KEY` | Via DashScope Model Studio |
+| Mistral, Cohere | `mistral`, `cohere` | |
+| Groq, Cerebras | `groq`, `cerebras` | Very fast. Good for the cheap calls |
+| Together, Fireworks, DeepInfra, Nebius, SambaNova, Hyperbolic | | Hosts for open weight models such as Llama and Qwen |
+| OpenRouter | `openrouter` + `OPENROUTER_API_KEY` | One key, hundreds of models across every vendor |
+| Ollama, LM Studio, vLLM, llama.cpp | `ollama`, `lmstudio`, `vllm`, `llamacpp` | Fully local, no key, nothing leaves your machine |
+| Azure OpenAI, GitHub Models | `azure`, `github` | |
+| Anything else | `custom` + `GAUNTLET_LLM_BASE_URL` | Any OpenAI-compatible gateway, including LiteLLM |
+
+Two details worth knowing:
+
+**Model names change often.** The defaults are reasonable at the time of writing. If a call
+reports an unknown model, override it:
+
+```bash
+GAUNTLET_LLM_INTERVIEW_MODEL=deepseek-reasoner
+GAUNTLET_LLM_EVALUATION_MODEL=deepseek-chat
+```
+
+**Embeddings are configured separately from chat**, because several strong chat providers
+(DeepSeek, Grok, Groq, Moonshot, Cerebras) have no embedding endpoint at all. Tying the two
+together would silently break question retrieval the moment you switched. So you can mix:
+
+```bash
+GAUNTLET_LLM_PROVIDER=deepseek         # interviews and grading
+GAUNTLET_EMBEDDING_PROVIDER=openai     # retrieval
+```
+
+If no embedding provider is available it falls back to a local lexical method, and reports
+`semantic_embeddings: false` rather than pretending.
+
+One caveat about running fully local models: small models are noticeably weaker at grading
+against a checklist. Run `python -m evals.runner` before trusting their scores. That is
+exactly what the benchmark is for.
 
 ### Commands
 
 ```bash
-pytest                        # 158 tests
+pytest                        # 194 tests
 ruff check .                  # linting
 mypy apps gauntlet            # type checking
 python -m evals.runner        # grade the grader
+gauntlet-providers            # list model providers and show what is configured
 cd apps/web && npm run build  # front end build
 ```
 
@@ -255,7 +308,7 @@ Engine   ->  LangGraph state machine
               v
 Data     ->  PostgreSQL, including saved interview state
              Redis
-             Anthropic or OpenAI
+             your chosen model provider
 ```
 
 The interview engine, grading, and skill tracking all touch the same data in the same
@@ -280,7 +333,7 @@ gauntlet/       the interview engine
   llm/            provider integrations
 docs/           architecture notes
 evals/          the graded benchmark
-tests/          158 tests
+tests/          194 tests
 ```
 
 ---

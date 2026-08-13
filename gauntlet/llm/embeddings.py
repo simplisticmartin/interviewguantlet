@@ -1,9 +1,13 @@
-"""Embedding access.
+"""Embedding access, resolved independently of the chat provider.
 
-Real embeddings come from OpenAI when a key is configured. Without one we fall back to
-a deterministic hashed bag-of-words embedder so retrieval, dedup, and tests still run
-offline. The fallback is explicitly *not* production-grade semantic search, and
-``is_semantic`` lets callers say so in the UI rather than quietly pretending.
+That independence is not incidental. Several capable chat providers (DeepSeek, xAI,
+Groq, Moonshot, Cerebras) expose no embedding endpoint at all, so tying embeddings to the
+chat provider would mean losing retrieval the moment you switched models. Instead the
+embedder resolves on its own: use the chat provider if it can embed, otherwise a provider
+you nominate, otherwise a deterministic local fallback.
+
+The fallback is explicitly *not* production-grade semantic search, and ``is_semantic``
+lets callers say so rather than quietly pretending.
 """
 
 from __future__ import annotations
@@ -14,7 +18,11 @@ import re
 from abc import ABC, abstractmethod
 from functools import lru_cache
 
+import structlog
+
 from gauntlet.config import get_settings
+
+log = structlog.get_logger(__name__)
 
 _TOKEN = re.compile(r"[a-z0-9_]+")
 
@@ -22,6 +30,7 @@ _TOKEN = re.compile(r"[a-z0-9_]+")
 class Embedder(ABC):
     is_semantic: bool = False
     dim: int = 1536
+    backend: str = "unknown"
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -40,6 +49,7 @@ class HashingEmbedder(Embedder):
     """
 
     is_semantic = False
+    backend = "local-hash"
 
     def __init__(self, dim: int = 1536) -> None:
         self.dim = dim
@@ -69,16 +79,23 @@ class HashingEmbedder(Embedder):
         return vector
 
 
-class OpenAIEmbedder(Embedder):
+class RemoteEmbedder(Embedder):
+    """Any OpenAI-compatible embeddings endpoint."""
+
     is_semantic = True
 
-    def __init__(self) -> None:
+    def __init__(self, *, backend: str, base_url: str, api_key: str, model: str) -> None:
         from openai import OpenAI
 
         settings = get_settings()
+        self.backend = backend
         self.dim = settings.embedding_dim
-        self._model = settings.embedding_model
-        self._client = OpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds)
+        self._model = model
+        self._client = OpenAI(
+            api_key=api_key or "not-required",
+            base_url=base_url or None,
+            timeout=settings.llm_timeout_seconds,
+        )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -90,9 +107,26 @@ class OpenAIEmbedder(Embedder):
 @lru_cache(maxsize=1)
 def get_embedder() -> Embedder:
     settings = get_settings()
-    if settings.openai_api_key:
-        return OpenAIEmbedder()
-    return HashingEmbedder(dim=settings.embedding_dim)
+    preset, base_url, api_key, model = settings.resolve_embedding_choice()
+
+    if preset is None:
+        log.info(
+            "embeddings.local",
+            reason="no embedding-capable provider configured",
+            impact="retrieval uses lexical hashing, not semantic similarity",
+        )
+        return HashingEmbedder(dim=settings.embedding_dim)
+
+    try:
+        embedder = RemoteEmbedder(
+            backend=preset.key, base_url=base_url, api_key=api_key, model=model
+        )
+    except Exception as exc:  # pragma: no cover - depends on the SDK being installed
+        log.warning("embeddings.degraded", provider=preset.key, error=str(exc)[:200])
+        return HashingEmbedder(dim=settings.embedding_dim)
+
+    log.info("embeddings.remote", provider=preset.key, model=model)
+    return embedder
 
 
 def reset_embedder_cache() -> None:

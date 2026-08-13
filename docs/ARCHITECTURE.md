@@ -182,7 +182,53 @@ reconstructed from anything.
 
 ---
 
-## 6. Things deliberately not done
+## 6. Provider portability
+
+The component most likely to change in an AI product is the model provider. Prices,
+capabilities and availability all move on a monthly cadence, and being locked to one
+vendor is a structural risk rather than an inconvenience.
+
+So `gauntlet/llm/` is the only part of the codebase that knows a vendor exists. Everything
+above it asks for a validated Pydantic model and receives one.
+
+**The load bearing observation** is that most vendors deliberately implement OpenAI's
+chat completions wire format. That turns "support twenty providers" from twenty
+integrations into one adapter plus a data table. `providers/presets.py` holds base URLs,
+default models, key environment variables and capability flags; adding a provider is a
+row, not code.
+
+Two adapters exist:
+
+- `AnthropicProvider`, native, because forced tool use gives schema enforcement at the API
+  rather than in the prompt, which is materially more reliable.
+- `OpenAICompatibleProvider`, serving OpenAI, Gemini, DeepSeek, xAI, Moonshot, Qwen,
+  Mistral, Cohere, Groq, Cerebras, Together, Fireworks, DeepInfra, Nebius, SambaNova,
+  Hyperbolic, OpenRouter, Perplexity, GitHub Models, Azure, Ollama, LM Studio, vLLM,
+  llama.cpp, and any other gateway speaking that format.
+
+Three details that only show up once you actually try to be portable:
+
+**Not every provider implements JSON mode, and they fail loudly rather than ignoring it.**
+Passing `response_format` to an endpoint that does not support it is usually a hard 400,
+not a silent no-op. The preset records support, and the adapter additionally detects the
+error at runtime, disables JSON mode for the rest of the process, and retries. The schema
+contract always goes in the prompt regardless, because JSON mode guarantees valid JSON,
+not JSON of the right shape.
+
+**Several strong chat providers have no embedding endpoint at all.** DeepSeek, xAI, Groq,
+Moonshot and Cerebras do not offer one. Tying embeddings to the chat provider would mean
+retrieval silently degrading the moment someone switched models. So embeddings resolve
+independently, with their own provider, key, base URL and model, and fall back to a
+deterministic local embedder that reports `semantic_embeddings: false`.
+
+**Reasoning models sometimes return an empty `content`** with the substance in a separate
+reasoning field. The adapter checks for that rather than treating it as an empty response.
+
+The practical payoff is that the same interview can run on a frontier model, on a
+7B model on a laptop with no network, or on the offline rule based engine, and nothing
+above the provider boundary changes. `gauntlet-providers` prints the current state.
+
+## 7. Things deliberately not done
 
 Recording these so they read as decisions rather than oversights.
 

@@ -23,18 +23,24 @@ class AnthropicProvider(JSONModeProvider):
     def __init__(self, settings: Settings) -> None:
         from anthropic import Anthropic  # imported lazily: optional at runtime
 
+        from gauntlet.llm.providers.presets import get_preset
+
+        preset = get_preset("anthropic")
+        if preset is None:  # pragma: no cover - defined in this package
+            raise RuntimeError("anthropic preset missing")
+
         self._settings = settings
+        self._preset = preset
         self._client = Anthropic(
-            api_key=settings.anthropic_api_key,
+            api_key=settings.resolve_api_key(preset),
+            base_url=settings.resolve_base_url(preset) or None,
             timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
         )
         self.max_attempts = max(1, settings.llm_max_retries)
 
     def model_for(self, role: LLMRole) -> str:
-        if role is LLMRole.EVALUATION:
-            return self._settings.anthropic_evaluation_model
-        return self._settings.anthropic_interview_model
+        return self._settings.resolve_model(self._preset, role)
 
     def _raw_completion(
         self,

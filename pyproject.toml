@@ -50,6 +50,7 @@ dev = [
 [project.scripts]
 gauntlet-seed = "gauntlet.content.seed:main"
 gauntlet-evals = "evals.runner:main"
+gauntlet-providers = "gauntlet.llm.cli:main"
 
 [build-system]
 requires = ["setuptools>=75"]
