@@ -13,7 +13,7 @@ import { formatDuration } from "../components/ui";
 import { ApiError, answerStreaming, api, type QuestionView, type TurnResponse } from "../lib/api";
 
 interface Turn {
-  role: "interviewer" | "candidate" | "clarification";
+  role: "interviewer" | "candidate" | "clarification" | "coaching";
   text: string;
   ordinal?: number | null;
   isFollowup?: boolean;
@@ -110,6 +110,15 @@ export default function Interview() {
         ...current,
         { role: "clarification", text: result.clarification!.reply },
       ]);
+    }
+
+    // Coaching Mode teaches between questions; Real Mode never sends one.
+    if (result.coaching?.feedback) {
+      const parts = [result.coaching.feedback];
+      if (result.coaching.next_step_hint) {
+        parts.push(`Going into the next one: ${result.coaching.next_step_hint}`);
+      }
+      setTurns((current) => [...current, { role: "coaching", text: parts.join(" ") }]);
     }
 
     if (result.status === "completed" || result.scorecard) {
@@ -240,10 +249,13 @@ export default function Interview() {
                   ? "turn turn-interviewer"
                   : turn.role === "candidate"
                     ? "turn turn-candidate"
-                    : "turn turn-clarify"
+                    : turn.role === "coaching"
+                      ? "turn turn-coaching"
+                      : "turn turn-clarify"
               }
             >
-              {turn.role !== "clarification" && (
+              {turn.role === "coaching" && <div className="turn-role">Coaching</div>}
+              {turn.role !== "clarification" && turn.role !== "coaching" && (
                 <div className="turn-role">
                   {turn.role === "interviewer"
                     ? turn.isFollowup

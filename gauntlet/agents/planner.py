@@ -28,6 +28,9 @@ from gauntlet.schemas import (
 
 # Roughly how long one question plus its follow-ups takes.
 MINUTES_PER_QUESTION = 2.5
+# Rapid Fire trades depth for breadth: short conceptual questions, no probing
+# (enforced in the router), so many more fit in the same wall clock (spec section 25).
+RAPID_FIRE_MINUTES_PER_QUESTION = 0.75
 
 _LEVEL_DIFFICULTY: dict[str, int] = {
     "intern": 2,
@@ -67,7 +70,7 @@ class InterviewPlannerAgent(Agent):
     def build_plan(self, request: PlanRequest) -> InterviewPlan:
         overlap = compute_concept_overlap(request.profile, request.job)
         hints = build_focus_hints(request, overlap)
-        target_count = question_budget(request.minutes)
+        target_count = question_budget(request.minutes, request.mode)
 
         company_mix = request.company.interview_mix() if request.company else None
 
@@ -120,15 +123,23 @@ def opening_difficulty(level: str) -> int:
     return _LEVEL_DIFFICULTY.get(level.strip().lower(), 3)
 
 
-def question_budget(minutes: int) -> int:
+def question_budget(minutes: int, mode: InterviewMode = InterviewMode.REAL) -> int:
     from gauntlet.config import get_settings
 
     settings = get_settings()
-    estimated = int(minutes / MINUTES_PER_QUESTION)
-    return max(
-        settings.min_questions_per_interview,
-        min(settings.max_questions_per_interview, estimated),
+    per_question = (
+        RAPID_FIRE_MINUTES_PER_QUESTION
+        if mode is InterviewMode.RAPID_FIRE
+        else MINUTES_PER_QUESTION
     )
+    estimated = int(minutes / per_question)
+    # Rapid Fire is allowed past the normal cap - that is the entire point of it.
+    ceiling = (
+        settings.max_questions_per_interview * 3
+        if mode is InterviewMode.RAPID_FIRE
+        else settings.max_questions_per_interview
+    )
+    return max(settings.min_questions_per_interview, min(ceiling, estimated))
 
 
 def compute_concept_overlap(profile: ResumeProfile, job: JobAnalysis) -> list[dict[str, object]]:

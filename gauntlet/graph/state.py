@@ -62,6 +62,7 @@ class InterviewState(TypedDict, total=False):
     current_question: dict[str, Any] | None
     pending_answer: dict[str, Any] | None
     pending_clarification: dict[str, Any] | None
+    pending_coaching: dict[str, Any] | None
     last_classification: dict[str, Any] | None
     last_evaluation: dict[str, Any] | None
     last_decision: dict[str, Any] | None
@@ -129,6 +130,7 @@ def new_state(
         current_question=None,
         pending_answer=None,
         pending_clarification=None,
+        pending_coaching=None,
         last_classification=None,
         last_evaluation=None,
         last_decision=None,

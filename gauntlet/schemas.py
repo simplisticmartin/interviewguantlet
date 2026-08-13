@@ -198,6 +198,19 @@ class ResponseClassification(StrictModel):
     clarification_text: str | None = None
 
 
+class CoachingNote(StrictModel):
+    """Teaching delivered between questions in Coaching Mode (spec section 25).
+
+    This is the one place the system is allowed to tell a candidate they were wrong
+    mid-interview. Real Interview Mode never produces one - measuring someone changes
+    the measurement the moment you start teaching into it.
+    """
+
+    feedback: str
+    key_correction: str | None = None
+    next_step_hint: str | None = None
+
+
 class ClarificationReply(StrictModel):
     """The interviewer's answer to a candidate's clarifying question.
 

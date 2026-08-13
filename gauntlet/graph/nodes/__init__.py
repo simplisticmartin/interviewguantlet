@@ -2,8 +2,10 @@
 
 from gauntlet.graph.nodes.grading import (
     check_submitted_code,
+    coach_candidate,
     evaluate_answer,
     misconception_check,
+    route_after_misconception,
     update_skill_graph,
 )
 from gauntlet.graph.nodes.intake import (
@@ -33,12 +35,14 @@ __all__ = [
     "build_report",
     "check_submitted_code",
     "classify_response",
+    "coach_candidate",
     "enough_evidence",
     "evaluate_answer",
     "misconception_check",
     "parse_candidate",
     "retrieve_company_patterns",
     "route_after_classification",
+    "route_after_misconception",
     "select_question",
     "update_skill_graph",
     "wait_after_clarification",

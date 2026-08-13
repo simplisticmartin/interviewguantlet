@@ -19,7 +19,16 @@ const INTERVIEW_TYPES = [
 
 const MODES = [
   { value: "real", label: "Real interview", hint: "No hints, no live scores. Timed." },
-  { value: "coaching", label: "Coaching", hint: "Same questions, guidance allowed." },
+  {
+    value: "coaching",
+    label: "Coaching",
+    hint: "The interviewer teaches between questions instead of staying silent.",
+  },
+  {
+    value: "rapid_fire",
+    label: "Rapid fire",
+    hint: "Many short conceptual questions. No follow-up probing.",
+  },
   { value: "resume_defense", label: "Resume defence", hint: "Cross-examine your own claims." },
   { value: "system_design", label: "System design", hint: "Architecture only." },
   { value: "coding", label: "Coding", hint: "DSA with the editor." },

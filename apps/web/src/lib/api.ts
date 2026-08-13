@@ -206,6 +206,8 @@ export interface TurnResponse {
   status: string;
   question: QuestionView | null;
   clarification: { reply: string } | null;
+  /** Coaching Mode only. Real Interview Mode never returns one. */
+  coaching: { feedback: string; key_correction: string | null; next_step_hint: string | null } | null;
   scorecard: Scorecard | null;
   remaining_seconds: number;
   questions_asked: number;

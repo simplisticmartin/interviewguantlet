@@ -36,6 +36,20 @@ def adaptive_router(state: InterviewState) -> dict[str, Any]:
         | set(graph.observed_keys())
     )
 
+    # Rapid Fire is deliberately shallow: probing a concept defeats the format.
+    if state.get("mode") == "rapid_fire":
+        from gauntlet.schemas import AdaptiveDecision, AdaptiveDirection
+
+        decision = AdaptiveDecision(
+            direction=AdaptiveDirection.LATERAL,
+            reason="Rapid fire: moving on rather than probing.",
+            difficulty_delta=1 if evaluation.score >= 0.8 else 0,
+        )
+        return {
+            "last_decision": decision.model_dump(mode="json"),
+            "interviewer_notes": [f"Route -> {decision.direction.value}: {decision.reason}"],
+        }
+
     decision = AdaptiveRouterAgent().decide(
         RoutingContext(
             concept_key=concept_key,

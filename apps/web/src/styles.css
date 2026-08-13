@@ -471,6 +471,16 @@ th { color: var(--text-faint); font-size: 0.74rem; text-transform: uppercase; le
   font-size: 0.9rem;
 }
 
+.turn-coaching .turn-body {
+  background: rgba(56, 180, 139, 0.09);
+  border: 1px solid var(--good);
+  border-radius: var(--radius);
+  padding: 11px 15px;
+  font-size: 0.9rem;
+}
+
+.turn-coaching .turn-role { color: var(--good); }
+
 .composer {
   border-top: 1px solid var(--border);
   background: var(--bg-raised);

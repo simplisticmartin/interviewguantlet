@@ -29,6 +29,7 @@ from gauntlet.schemas import (
     AdaptiveDecision,
     AdaptiveDirection,
     ClarificationReply,
+    CoachingNote,
     CommitteeVerdict,
     FocusArea,
     InterviewPlan,
@@ -470,6 +471,47 @@ def _handle_response_classification(
     return ResponseClassification(response_class=ResponseClass.SUBSTANTIVE)
 
 
+def _handle_coaching(context: dict[str, Any], _untrusted: dict[str, str]) -> CoachingNote:
+    evaluation: dict[str, Any] = context.get("last_evaluation", {})
+    rubric: dict[str, Any] = context.get("rubric", {})
+    labels = {
+        str(dimension.get("key")): str(dimension.get("label", dimension.get("key")))
+        for dimension in rubric.get("dimensions", [])
+    }
+
+    demonstrated = [labels.get(key, key) for key in evaluation.get("demonstrated", [])]
+    missing = [labels.get(key, key) for key in evaluation.get("missing", [])]
+    misconception: dict[str, Any] = evaluation.get("misconception") or {}
+
+    parts: list[str] = []
+    if demonstrated:
+        parts.append(f"Good: you covered {', '.join(demonstrated[:3])}.")
+    else:
+        parts.append("There wasn't much there for me to work with yet.")
+
+    correction: str | None = None
+    if misconception.get("detected"):
+        correction = str(misconception.get("correction", "")) or None
+        parts.append(
+            f"One thing to fix: you said \"{misconception.get('belief', '')}\" "
+            f"That isn't right - {correction}"
+        )
+    elif missing:
+        parts.append(f"The biggest gap was {missing[0]}.")
+
+    hint: str | None = None
+    for dimension in rubric.get("dimensions", []):
+        if dimension.get("key") in set(evaluation.get("missing", [])) and dimension.get("hint"):
+            hint = str(dimension["hint"])
+            break
+
+    return CoachingNote(
+        feedback=" ".join(parts),
+        key_correction=correction,
+        next_step_hint=hint,
+    )
+
+
 def _handle_clarification(
     context: dict[str, Any], untrusted: dict[str, str]
 ) -> ClarificationReply:
@@ -780,6 +822,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, str]], BaseModel]] = {
     "QuestionSpec": _handle_question_spec,
     "ResponseClassification": _handle_response_classification,
     "ClarificationReply": _handle_clarification,
+    "CoachingNote": _handle_coaching,
     "JudgeVerdict": _handle_judge_verdict,
     "MisconceptionFinding": _handle_misconception,
     "AdaptiveDecision": _handle_adaptive_decision,

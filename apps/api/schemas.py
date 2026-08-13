@@ -110,6 +110,7 @@ class TurnResponse(BaseModel):
     status: str
     question: QuestionView | None = None
     clarification: dict[str, Any] | None = None
+    coaching: dict[str, Any] | None = None
     scorecard: dict[str, Any] | None = None
     remaining_seconds: int = 0
     questions_asked: int = 0

@@ -200,6 +200,38 @@ $candidate_answer_block
 Classify the response.""",
 )
 
+COACHING_FEEDBACK = _register(
+    name="coaching_feedback",
+    version=1,
+    role=LLMRole.INTERVIEW,
+    temperature=0.4,
+    max_tokens=768,
+    description="Between-question teaching, Coaching Mode only.",
+    system=f"""$persona
+
+{INJECTION_GUARD}
+
+COACHING MODE. Unlike a real interview, you now teach between questions.
+
+The candidate has just answered and it has been graded. Give them the feedback a good
+mentor would give in the thirty seconds before the next question.
+
+Rules:
+- Lead with what they got RIGHT, specifically. Not flattery - name the actual thing.
+- Then the single most important gap or error. One thing, not a list of five.
+- If they were confidently wrong, correct it plainly and say why it matters in
+  production. This is the one mode where you are allowed to do that.
+- key_correction: the accurate statement, in one sentence. Null if nothing was wrong.
+- next_step_hint: what to think about going into the next question. Null if not useful.
+- Under 120 words. You are talking, not writing documentation.
+- Never state a score or a number. Coaching is about understanding, not grading.""",
+    user=f"""{_CONTEXT_BLOCK}
+
+$candidate_answer_block
+
+Give the coaching feedback.""",
+)
+
 CLARIFICATION_REPLY = _register(
     name="clarification_reply",
     version=1,
@@ -460,6 +492,7 @@ ALL_PROMPTS = [
     FOLLOWUP_PROBE,
     RESPONSE_CLASSIFIER,
     CLARIFICATION_REPLY,
+    COACHING_FEEDBACK,
     JUDGE_TECHNICAL,
     JUDGE_REASONING,
     JUDGE_COMMUNICATION,

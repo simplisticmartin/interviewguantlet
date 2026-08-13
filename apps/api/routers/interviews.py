@@ -314,6 +314,7 @@ def _to_response(result: TurnResult) -> TurnResponse:
         status=result.status,
         question=QuestionView.model_validate(result.question) if result.question else None,
         clarification=result.clarification,
+        coaching=result.coaching,
         scorecard=result.scorecard,
         remaining_seconds=result.remaining_seconds,
         questions_asked=result.questions_asked,

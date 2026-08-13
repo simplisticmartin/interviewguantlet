@@ -41,12 +41,14 @@ from gauntlet.graph.nodes import (
     build_report,
     check_submitted_code,
     classify_response,
+    coach_candidate,
     enough_evidence,
     evaluate_answer,
     misconception_check,
     parse_candidate,
     retrieve_company_patterns,
     route_after_classification,
+    route_after_misconception,
     select_question,
     update_skill_graph,
     wait_after_clarification,
@@ -78,6 +80,7 @@ def build_interview_graph() -> StateGraph:
     graph.add_node("evaluate_answer", evaluate_answer)
     graph.add_node("update_skill_graph", update_skill_graph)
     graph.add_node("misconception_check", misconception_check)
+    graph.add_node("coach_candidate", coach_candidate)
     graph.add_node("adaptive_router", adaptive_router)
 
     # --- Report -----------------------------------------------------------
@@ -109,7 +112,13 @@ def build_interview_graph() -> StateGraph:
     graph.add_edge("check_code", "evaluate_answer")
     graph.add_edge("evaluate_answer", "update_skill_graph")
     graph.add_edge("update_skill_graph", "misconception_check")
-    graph.add_edge("misconception_check", "adaptive_router")
+    # Coaching Mode teaches between questions; every other mode routes straight on.
+    graph.add_conditional_edges(
+        "misconception_check",
+        route_after_misconception,
+        {"coach_candidate": "coach_candidate", "adaptive_router": "adaptive_router"},
+    )
+    graph.add_edge("coach_candidate", "adaptive_router")
 
     graph.add_conditional_edges(
         "adaptive_router",

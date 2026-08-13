@@ -68,6 +68,7 @@ class TurnResult:
     status: str
     question: dict[str, Any] | None
     clarification: dict[str, Any] | None
+    coaching: dict[str, Any] | None
     scorecard: dict[str, Any] | None
     remaining_seconds: int
     questions_asked: int
@@ -431,11 +432,14 @@ def _build_result(
             question = _public_question(state.get("current_question"))
 
     scorecard = state.get("final_scorecard") or None
+    # Coaching notes exist only in Coaching Mode; Real Mode never produces one.
+    coaching = state.get("pending_coaching") or None
     return TurnResult(
         session_id=record.id,
         status=str(state.get("status", record.status)),
         question=question,
         clarification=clarification,
+        coaching=coaching,
         scorecard=scorecard if scorecard else None,
         remaining_seconds=int(state.get("remaining_time", 0)),
         questions_asked=len(state.get("question_history", [])),

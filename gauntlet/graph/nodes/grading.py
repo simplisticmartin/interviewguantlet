@@ -150,6 +150,35 @@ def update_skill_graph(state: InterviewState) -> dict[str, Any]:
     }
 
 
+def coach_candidate(state: InterviewState) -> dict[str, Any]:
+    """Teach between questions. Coaching Mode only - the graph skips this otherwise."""
+    from gauntlet.agents.coach import CoachAgent
+    from gauntlet.schemas import AggregateEvaluation
+
+    question = QuestionSpec.model_validate(_question_spec_dict(state))
+    evaluation = AggregateEvaluation.model_validate(state.get("last_evaluation") or {"score": 0.0})
+    last_answer = (state.get("answer_history") or [{}])[-1]
+
+    note = CoachAgent().coach(question, evaluation, str(last_answer.get("text", "")))
+    log.info("graph.coaching", session=state.get("session_id"), ordinal=question_ordinal(state))
+
+    return {
+        "pending_coaching": {
+            **note.model_dump(mode="json"),
+            "ordinal": question_ordinal(state),
+        }
+    }
+
+
+def question_ordinal(state: InterviewState) -> int:
+    return len(state.get("question_history", []))
+
+
+def route_after_misconception(state: InterviewState) -> str:
+    """Coaching Mode teaches before routing; every other mode stays silent."""
+    return "coach_candidate" if state.get("mode") == "coaching" else "adaptive_router"
+
+
 def misconception_check(state: InterviewState) -> dict[str, Any]:
     """Persist any confidently-wrong belief the judges surfaced."""
     from gauntlet.schemas import AggregateEvaluation
