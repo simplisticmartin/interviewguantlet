@@ -291,6 +291,13 @@ def _sync_session(session: Session, record: InterviewSession, state: Mapping[str
         record.ended_at = datetime.now(UTC)
         merge_session_into_skill_graph(session, record, state)
         _persist_study_plan(session, record, scorecard)
+
+        # If this session was a replay, record how much better the second attempt was.
+        # Imported here because replay builds on this module.
+        from gauntlet.services.replay import settle_replay
+
+        settle_replay(session, record)
+
         log.info(
             "interview.completed",
             session=str(record.id),

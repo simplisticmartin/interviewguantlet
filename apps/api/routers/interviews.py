@@ -232,6 +232,69 @@ def get_interview(
     )
 
 
+@router.get("/{session_id}/replay-points")
+def replay_points(
+    session_id: uuid.UUID,
+    candidate: Candidate = Depends(get_current_candidate),
+    session: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Moments in this interview worth another attempt (spec section 24)."""
+    from gauntlet.services.replay import list_replay_points
+
+    record = _owned_session(session, candidate, session_id)
+    points = list_replay_points(session, record)
+    return {
+        "session_id": str(record.id),
+        "points": [
+            {
+                "ordinal": point.ordinal,
+                "prompt_text": point.prompt_text,
+                "score": point.score,
+                "is_followup": point.is_followup,
+                "reason": point.reason,
+            }
+            for point in points
+        ],
+    }
+
+
+@router.post(
+    "/{session_id}/replay/{ordinal}",
+    response_model=TurnResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def replay(
+    session_id: uuid.UUID,
+    ordinal: int,
+    candidate: Candidate = Depends(get_current_candidate),
+    session: Session = Depends(get_db),
+) -> TurnResponse:
+    """Fork a new interview that re-asks a specific question.
+
+    The original is left untouched, so the two attempts can be compared. The candidate
+    sees the identical question rather than a regenerated variant.
+    """
+    from gauntlet.services.replay import ReplayError, replay_from
+
+    record = _owned_session(session, candidate, session_id)
+    try:
+        _, result = replay_from(session, record, ordinal)
+    except ReplayError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _to_response(result)
+
+
+@router.get("/replays/history")
+def replays(
+    candidate: Candidate = Depends(get_current_candidate),
+    session: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Every replay attempt, with the original score, the new score, and the delta."""
+    from gauntlet.services.replay import replay_history
+
+    return {"replays": replay_history(session, candidate.id)}
+
+
 @router.get("/{session_id}/checkpoints")
 def list_checkpoints(
     session_id: uuid.UUID,

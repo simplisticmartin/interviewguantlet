@@ -160,6 +160,39 @@ cannot become influence over your result.
 
 A test uploads a deliberately hostile resume and confirms the interview proceeds normally.
 
+### The same question asked twenty ways is one question
+
+Interview questions arrive phrased differently every time. These are the same question:
+
+```
+"Find two numbers summing to target."
+"Given an array and target, return two indices whose values add to target."
+"Find a pair adding to K."
+```
+
+Without deduplication, a corpus of 5,000 reports becomes 5,000 "unique" questions that are
+really the same forty problems reworded. That inflated number looks impressive and makes
+retrieval worse, because one concept crowds out everything else in the results.
+
+Three signals decide it. Domain aware normalisation folds the vocabulary the same problem
+gets described with, so "a pair adding to K" and "two numbers summing to target" reduce to
+the same tokens. Embeddings add semantic similarity when a real embedding provider is
+configured. And concept tags act as a gate rather than a score, so two questions about
+different subjects never merge however similar the wording looks. Clustering is union find,
+so variants join transitively without every pair having to match.
+
+### Replaying the moment it went wrong
+
+The most useful thing after a bad interview is "take me back to the Kafka question and let
+me try again", and that is why the whole system runs on a checkpointed state machine.
+
+A replay is a new session seeded with the original's state truncated to just before that
+question, so the original stays intact and the two attempts can be compared. You get the
+identical question rather than a regenerated variant, which is what makes the comparison
+mean anything, and the interview adapts normally from your new answer onward. The
+improvement between the two attempts is recorded, which is the only number in the product
+that says you got better at one specific thing.
+
 ### Submitted code is never executed
 
 When you answer a coding question, your code is analysed but never run. Not in a subprocess,
@@ -344,8 +377,8 @@ tests/          194 tests
 adversarial follow up questions, resume cross examination, checklist based grading with four
 graders, misconception detection, a skill profile that persists across interviews and decays
 over time, confidence calibration, spaced repetition scheduling, hiring committee summaries,
-scorecards, study plans, question search, company simulation, the grading benchmark and its
-regression test, the API, and the web interface.
+scorecards, study plans, question search, company simulation, question deduplication, failure
+replay, the grading benchmark and its regression test, the API, and the web interface.
 
 **Partly built:**
 
@@ -353,8 +386,6 @@ regression test, the API, and the web interface.
 |---|---|---|
 | Code execution | Analysis that produces real interview signals | No sandbox. Nothing is run |
 | External tool servers (MCP) | A full design | Not implemented |
-| Interview replay | Every rewind point is saved and listable | No way to trigger a rewind yet |
-| Duplicate question detection | The database design | The matching itself |
 | Monitoring | Detailed logs including cost per interview | No distributed tracing |
 
 **Not started:** importing questions from external sources, community contributed

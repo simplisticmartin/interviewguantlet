@@ -175,6 +175,50 @@ class TestInterviewFlow:
         )
         assert response.status_code == 404
 
+    def test_replay_forks_a_new_session_with_the_same_question(self, auth_client: TestClient):
+        """Spec section 24: the original stays intact and the question is restated."""
+        created = auth_client.post(
+            "/interviews",
+            json={
+                "target_role": "Senior Java Engineer",
+                "target_level": "senior",
+                "interview_types": ["java"],
+                "minutes": 15,
+            },
+        )
+        session_id = created.json()["session_id"]
+        first_question = created.json()["question"]["prompt_text"]
+
+        answered = auth_client.post(
+            f"/interviews/{session_id}/answer",
+            json={"text": "I am not sure, I have never looked into that."},
+        )
+        assert answered.status_code == 200
+
+        replayed = auth_client.post(f"/interviews/{session_id}/replay/1")
+        assert replayed.status_code == 201, replayed.text
+        body = replayed.json()
+
+        assert body["session_id"] != session_id, "a replay must be a separate session"
+        assert body["question"]["prompt_text"] == first_question, (
+            "a replay must restate the identical question"
+        )
+
+        # The original is untouched and still holds its own answer.
+        original = auth_client.get(f"/interviews/{session_id}").json()
+        assert original["transcript"][0]["answer_text"]
+
+    def test_replaying_an_unknown_question_is_rejected(self, auth_client: TestClient):
+        created = auth_client.post(
+            "/interviews", json={"target_role": "Engineer", "minutes": 10}
+        )
+        session_id = created.json()["session_id"]
+        assert auth_client.post(f"/interviews/{session_id}/replay/99").status_code == 400
+
+    def test_replay_history_is_listed(self, auth_client: TestClient):
+        body = auth_client.get("/interviews/replays/history").json()
+        assert "replays" in body
+
     def test_checkpoints_are_listed_for_replay(self, auth_client: TestClient):
         created = auth_client.post(
             "/interviews",

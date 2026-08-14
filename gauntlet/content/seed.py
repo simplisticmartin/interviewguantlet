@@ -20,7 +20,14 @@ from sqlalchemy.orm import Session
 from gauntlet.content.companies import COMPANIES
 from gauntlet.content.questions import QUESTIONS
 from gauntlet.content.taxonomy import CONCEPTS
-from gauntlet.db.models import Company, Concept, PromptVersion, Question, Rubric
+from gauntlet.db.models import (
+    Company,
+    Concept,
+    PromptVersion,
+    Question,
+    QuestionFamily,
+    Rubric,
+)
 from gauntlet.db.session import session_scope
 from gauntlet.evaluation.rubrics import RUBRICS
 from gauntlet.llm.embeddings import get_embedder
@@ -99,6 +106,58 @@ def seed_prompts(session: Session) -> int:
     return touched
 
 
+def seed_question_families(session: Session) -> int:
+    """Cluster the corpus into canonical families (spec section 8).
+
+    Runs before questions are seeded so every question can be attached to its family.
+    On the shipped corpus this should produce one family per question, because the
+    corpus is hand written; it earns its keep once questions arrive from anywhere else.
+    """
+    from gauntlet.ingestion.dedup import QuestionCandidate, cluster_questions
+
+    candidates = [
+        QuestionCandidate(
+            id=seed.slug,
+            text=seed.question,
+            concept_keys=tuple(seed.concept_keys),
+            topics=tuple(seed.topics),
+        )
+        for seed in QUESTIONS
+    ]
+    clusters = cluster_questions(candidates)
+
+    existing = {row.slug: row for row in session.scalars(select(QuestionFamily))}
+    for cluster in clusters:
+        row = existing.get(cluster.slug)
+        if row is None:
+            row = QuestionFamily(slug=cluster.slug)
+            session.add(row)
+        row.canonical_text = cluster.canonical.text
+        row.topics = cluster.topics()
+        row.variant_count = cluster.size
+        existing[cluster.slug] = row
+
+    session.flush()
+    # Map every question slug to its family row, for seed_questions to use.
+    _FAMILY_BY_QUESTION.clear()
+    for cluster in clusters:
+        family = existing[cluster.slug]
+        for member in cluster.members:
+            _FAMILY_BY_QUESTION[member.id] = family
+
+    log.info(
+        "seed.families",
+        families=len(clusters),
+        questions=len(candidates),
+        merged=len(candidates) - len(clusters),
+    )
+    return len(clusters)
+
+
+# Populated by seed_question_families, consumed by seed_questions.
+_FAMILY_BY_QUESTION: dict[str, QuestionFamily] = {}
+
+
 def seed_questions(session: Session, embed: bool = True) -> int:
     """Load the authored corpus, embedding question text for hybrid retrieval."""
     existing = {row.question: row for row in session.scalars(select(Question))}
@@ -128,6 +187,9 @@ def seed_questions(session: Session, embed: bool = True) -> int:
         row.confidence = 1.0
         row.based_on_patterns = list(seed.based_on_patterns)
         row.is_active = True
+        family = _FAMILY_BY_QUESTION.get(seed.slug)
+        if family is not None:
+            row.family_id = family.id
         touched += 1
         if embedder is not None:
             to_embed.append((row, f"{seed.question} {' '.join(seed.topics)}"))
@@ -146,6 +208,7 @@ def seed_all(session: Session, embed: bool = True) -> dict[str, int]:
         "companies": seed_companies(session),
         "rubrics": seed_rubrics(session),
         "prompts": seed_prompts(session),
+        "families": seed_question_families(session),
         "questions": seed_questions(session, embed=embed),
     }
     session.flush()
