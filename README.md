@@ -193,6 +193,38 @@ mean anything, and the interview adapts normally from your new answer onward. Th
 improvement between the two attempts is recorded, which is the only number in the product
 that says you got better at one specific thing.
 
+### Usable from other AI tools, over MCP
+
+Three servers speak the Model Context Protocol, so Claude Desktop, an IDE, or another
+agent can use Gauntlet's data without importing any of it.
+
+| Server | What it exposes | Needs |
+|---|---|---|
+| `gauntlet-mcp-questions` | Corpus search, duplicate checking, concept taxonomy, company estimates | Nothing |
+| `gauntlet-mcp-candidate` | A candidate's resume, history, skill graph and open misconceptions | The database |
+| `gauntlet-mcp-coding` | Static analysis of submitted code and the interview signals it suggests | Nothing |
+
+To wire them into an MCP client, point it at the console scripts:
+
+```json
+{
+  "mcpServers": {
+    "gauntlet-questions": { "command": "gauntlet-mcp-questions" },
+    "gauntlet-coding":    { "command": "gauntlet-mcp-coding" },
+    "gauntlet-candidate": { "command": "gauntlet-mcp-candidate" }
+  }
+}
+```
+
+Two things worth knowing. The coding server deliberately exposes **no execution tools**,
+because shipping something called `run_hidden_tests` that quietly only parsed the code
+would be worse than not shipping it: an agent would believe the result and tell someone
+their solution passed. Every response says `executed: false`.
+
+And the candidate server reads personal data, so every tool takes an explicit candidate id
+rather than assuming a current user. It runs over stdio, launched locally by your own
+client. Exposing it over a network would need real authentication first.
+
 ### Submitted code is never executed
 
 When you answer a coding question, your code is analysed but never run. Not in a subprocess,
@@ -378,14 +410,14 @@ adversarial follow up questions, resume cross examination, checklist based gradi
 graders, misconception detection, a skill profile that persists across interviews and decays
 over time, confidence calibration, spaced repetition scheduling, hiring committee summaries,
 scorecards, study plans, question search, company simulation, question deduplication, failure
-replay, the grading benchmark and its regression test, the API, and the web interface.
+replay, three MCP tool servers, the grading benchmark and its regression test, the API, and
+the web interface.
 
 **Partly built:**
 
 | Area | Exists | Missing |
 |---|---|---|
 | Code execution | Analysis that produces real interview signals | No sandbox. Nothing is run |
-| External tool servers (MCP) | A full design | Not implemented |
 | Monitoring | Detailed logs including cost per interview | No distributed tracing |
 
 **Not started:** importing questions from external sources, community contributed

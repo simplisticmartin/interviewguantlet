@@ -35,6 +35,8 @@ dependencies = [
     "python-docx>=1.1",
     # Observability
     "structlog>=24.4",
+    # MCP tool servers
+    "mcp>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +53,9 @@ dev = [
 gauntlet-seed = "gauntlet.content.seed:main"
 gauntlet-evals = "evals.runner:main"
 gauntlet-providers = "gauntlet.llm.cli:main"
+gauntlet-mcp-questions = "gauntlet.mcp.question_bank_server:main"
+gauntlet-mcp-candidate = "gauntlet.mcp.candidate_server:main"
+gauntlet-mcp-coding = "gauntlet.mcp.coding_server:main"
 
 [build-system]
 requires = ["setuptools>=75"]
