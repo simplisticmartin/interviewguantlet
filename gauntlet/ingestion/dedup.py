@@ -199,6 +199,16 @@ class SimilarityScore:
         )
 
 
+def _with_ancestors(keys: Iterable[str]) -> set[str]:
+    """Concept keys plus every dotted ancestor, so parent and child count as related."""
+    expanded: set[str] = set()
+    for key in keys:
+        parts = key.split(".")
+        for index in range(1, len(parts) + 1):
+            expanded.add(".".join(parts[:index]))
+    return expanded
+
+
 def compare(
     left: QuestionCandidate,
     right: QuestionCandidate,
@@ -229,9 +239,16 @@ def compare(
     if not left.concept_keys or not right.concept_keys:
         concept = 1.0
     else:
+        # Expand with ancestors before comparing. Concept keys are a hierarchy, so
+        # "kafka" and "kafka.ordering" are closely related, and comparing the raw
+        # strings scores them zero. That matters most for contributed questions, which
+        # get tagged coarsely and would otherwise never match a specifically tagged
+        # corpus entry.
         concept = max(
-            jaccard(left.concept_keys, right.concept_keys),
-            overlap_coefficient(left.concept_keys, right.concept_keys),
+            jaccard(_with_ancestors(left.concept_keys), _with_ancestors(right.concept_keys)),
+            overlap_coefficient(
+                _with_ancestors(left.concept_keys), _with_ancestors(right.concept_keys)
+            ),
         )
 
     # Renormalise over the signals actually available. Without this, running with no

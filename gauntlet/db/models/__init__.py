@@ -17,6 +17,7 @@ from gauntlet.db.models.catalog import (
     JobDescription,
     Question,
     QuestionFamily,
+    QuestionSubmission,
     Role,
 )
 from gauntlet.db.models.identity import Candidate, Resume, ResumeClaim, User
@@ -52,6 +53,7 @@ __all__ = [
     "PromptVersion",
     "Question",
     "QuestionFamily",
+    "QuestionSubmission",
     "ReplaySession",
     "Resume",
     "ResumeClaim",

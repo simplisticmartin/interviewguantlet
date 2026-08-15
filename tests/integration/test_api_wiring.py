@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.deps import auth_rate_limit, interview_rate_limit, upload_rate_limit
+from apps.api.routers.contributions import contribution_rate_limit
 
 # Endpoints that must resolve their dependencies without a database. Each is behind a
 # rate limiter, which is exactly what broke.
@@ -36,7 +37,12 @@ def client():
 class TestDependencyWiring:
     def test_rate_limiters_are_hashable(self):
         """FastAPI keys its dependency cache by the callable object."""
-        for limiter in (auth_rate_limit, upload_rate_limit, interview_rate_limit):
+        for limiter in (
+            auth_rate_limit,
+            upload_rate_limit,
+            interview_rate_limit,
+            contribution_rate_limit,
+        ):
             assert hash(limiter) is not None
             assert {limiter: True}[limiter] is True
 
@@ -57,8 +63,22 @@ class TestDependencyWiring:
     def test_protected_routes_reject_anonymous_callers_before_touching_the_db(
         self, client: TestClient
     ):
-        for path in ("/skills", "/analytics", "/study-plan", "/interviews"):
+        for path in (
+            "/skills",
+            "/analytics",
+            "/study-plan",
+            "/interviews",
+            "/contributions/mine",
+            "/moderation/submissions",
+        ):
             assert client.get(path).status_code == 401, path
+
+    def test_contributing_anonymously_is_rejected_before_any_screening(
+        self, client: TestClient
+    ):
+        """Auth first: an unauthenticated payload should never reach the pipeline."""
+        response = client.post("/contributions", json={"question": "a" * 40})
+        assert response.status_code == 401
 
     def test_companies_are_served_from_code_not_the_database(self, client: TestClient):
         """The catalogue is in-code, so it must work with no database at all."""
@@ -68,7 +88,14 @@ class TestDependencyWiring:
 
     def test_every_declared_route_is_reachable_in_the_schema(self, client: TestClient):
         spec = client.get("/openapi.json").json()
-        for path in ("/auth/register", "/interviews", "/questions/search", "/analytics"):
+        for path in (
+            "/auth/register",
+            "/interviews",
+            "/questions/search",
+            "/analytics",
+            "/contributions",
+            "/moderation/submissions",
+        ):
             assert path in spec["paths"], f"{path} missing from the OpenAPI schema"
 
 

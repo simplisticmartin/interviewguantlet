@@ -9,8 +9,8 @@ change candidate behaviour if exposed.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Annotated, Any
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -232,3 +232,77 @@ class HealthResponse(BaseModel):
     llm_degraded: bool
     durable_checkpoints: bool
     semantic_embeddings: bool
+
+
+# --- User-contributed questions (spec sections 37, 38) --------------------------
+
+
+class ContributionRequest(BaseModel):
+    """A question someone was actually asked, offered to the corpus.
+
+    Free-text fields are length-capped at the edge. The screening filter is the real
+    defence, but a cap keeps a pathological payload from reaching it at all.
+    """
+
+    question: Annotated[str, Field(min_length=15, max_length=2000)]
+    company: Annotated[str | None, Field(max_length=120)] = None
+    role: Annotated[str | None, Field(max_length=120)] = None
+    level: Annotated[str | None, Field(max_length=60)] = None
+    interview_round: Annotated[str | None, Field(max_length=60)] = None
+    asked_on: date | None = None
+    notes: Annotated[str | None, Field(max_length=2000)] = None
+    difficulty: Annotated[int | None, Field(ge=1, le=5)] = None
+
+
+class ContributionResponse(BaseModel):
+    """What the contributor is told.
+
+    Deliberately states that nothing is published yet. A contributor who thinks their
+    question went live and then cannot find it will assume the feature is broken.
+    """
+
+    id: uuid.UUID
+    status: str
+    question: str
+    concept_keys: list[str]
+    interview_type: str | None
+    difficulty: int
+    safety_verdict: str
+    review_reasons: list[str]
+    duplicate_of: str | None = None
+    message: str
+
+
+class ContributionRejected(BaseModel):
+    detail: str
+    reasons: list[str]
+
+
+class SubmissionView(BaseModel):
+    """A queued submission as a moderator sees it."""
+
+    id: uuid.UUID
+    question: str
+    company_slug: str | None
+    level: str | None
+    interview_type: str | None
+    concept_keys: list[str]
+    difficulty: int
+    status: str
+    safety_verdict: str
+    safety_findings: list[str]
+    review_reasons: list[str]
+    near_duplicates: list[Any]
+    duplicate_of_slug: str | None
+    created_at: datetime
+    published_question_id: uuid.UUID | None = None
+
+
+class ModerationDecision(BaseModel):
+    """A moderator's ruling, with optional corrections to the automatic tagging."""
+
+    decision: Literal["approve", "reject"]
+    note: Annotated[str | None, Field(max_length=1000)] = None
+    interview_type: Annotated[str | None, Field(max_length=60)] = None
+    concept_keys: Annotated[list[str] | None, Field(max_length=10)] = None
+    difficulty: Annotated[int | None, Field(ge=1, le=5)] = None

@@ -23,6 +23,10 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Moderators review user-contributed questions (spec section 38). A flag on the user
+    # rather than an allowlist in config, so granting review rights is an audited row
+    # change instead of a redeploy.
+    is_moderator: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     candidate: Mapped[Candidate | None] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"

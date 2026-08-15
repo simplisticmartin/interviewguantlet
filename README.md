@@ -410,8 +410,9 @@ adversarial follow up questions, resume cross examination, checklist based gradi
 graders, misconception detection, a skill profile that persists across interviews and decays
 over time, confidence calibration, spaced repetition scheduling, hiring committee summaries,
 scorecards, study plans, question search, company simulation, question deduplication, failure
-replay, three MCP tool servers, the grading benchmark and its regression test, the API, and
-the web interface.
+replay, three MCP tool servers, user contributed questions with safety screening and a
+moderation queue, the grading benchmark and its regression test, the API, and the web
+interface.
 
 **Partly built:**
 
@@ -420,12 +421,14 @@ the web interface.
 | Code execution | Analysis that produces real interview signals | No sandbox. Nothing is run |
 | Monitoring | Detailed logs including cost per interview | No distributed tracing |
 
-**Not started:** importing questions from external sources, community contributed
-interviews, voice interviews, and a full multi round loop.
+**Not started:** importing questions from external sources, voice interviews, and a full
+multi round loop.
 
 **Not yet verified end to end:** the paths requiring a live database, meaning migrations,
-the data loader, and 15 API tests. They are written and skip cleanly with a clear message
-when Postgres is unavailable, but have not been executed against a running instance.
+the data loader, and 29 API tests including the contribution and moderation flow. They are
+written and skip cleanly with a clear message when Postgres is unavailable, but have not
+been executed against a running instance. A separate test compares every migration against
+the models without needing a database, which catches schema drift but not invalid SQL.
 
 ---
 

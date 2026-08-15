@@ -128,14 +128,17 @@ server analyses and does not execute, and says so in every response.
 
 ## 4. Ingestion pipeline (partly built)
 
-Deduplication and recency weighting are implemented in `gauntlet/ingestion/`. The source
-adapters, extraction and moderation queue are not. The schema is, which is the part that
-is expensive to retrofit:
+Deduplication, recency weighting, safety screening, the orchestrated pipeline and the
+moderation queue are implemented in `gauntlet/ingestion/` and `gauntlet/services/
+contributions.py`. What is still missing is the external source adapters: today the only
+input is a person submitting a question they were asked, through the API.
+
+The schema was built first, because it is the part that is expensive to retrofit:
 `questions` carries full provenance, `question_families` exists for canonicalisation, and
 `company_question_occurrences` stores counts and dates rather than claims.
 
 ```
-source adapter                    ← one per source, obeys that source's terms
+source adapter                    ← not built. Today the only input is a user submission
       ↓
 parser → question extractor
       ↓
@@ -158,6 +161,33 @@ are one `QuestionFamily` with three variants, not three questions.
 confidence can decay with age on the same principle as the mastery model: a 2019 report
 is archival, a 2026 report is strong evidence. The decay function is configurable rather
 than baked in.
+
+**Safety runs first, not last.** `gauntlet/ingestion/safety.py` screens before anything
+else touches the text, because screening after tagging and deduplication would mean an
+NDA-covered submission had already been embedded and compared against the corpus before
+anyone decided to refuse it. The filter does three different things deliberately kept
+apart: it *redacts* unambiguous identifiers (emails, phones, links, handles), *blocks*
+content that no amount of scrubbing makes publishable (NDA markers, leaked assessments),
+and *flags for review* anything uncertain. Names are the hard case: redacting every
+capitalised word would destroy "Kafka" and "Redis", so names are matched only in
+constructions that genuinely introduce a person, and a removed name always escalates to a
+human because the surrounding sentence can still identify someone.
+
+**Nothing publishes automatically.** An accepted submission becomes a `pending` row in
+`question_submissions`, never a row in `questions`. Separate tables rather than a draft
+flag, so serving unreviewed content is not one forgotten `WHERE` clause away. Only a
+moderator's approval writes to the corpus, and what it writes is always
+`question_origin="user_submitted"` at low starting confidence, since one person reporting
+a question is weak evidence.
+
+**Near-duplicates go to the reviewer, not to a threshold.** Above the merge threshold the
+pipeline merges; between the near floor and that threshold it queues the submission with
+the similar question attached and lets a person decide. That band widens when no embedding
+provider is configured and only the lexical signal is available.
+
+**Only redacted text is stored.** The raw submission is never persisted. Keeping the
+original "just in case" would defeat the entire screening step, since the personal data
+would still sit in the database.
 
 **Sources it will not accept:** paywalled databases, leaked assessments, anything whose
 licence does not permit reuse. Adapters are per-source specifically so those terms are

@@ -8,13 +8,14 @@ reported by a candidate from one Gauntlet generated in the style of a company.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -194,4 +195,74 @@ class CompanyQuestionOccurrence(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("company_id", "question_id", "level", name="uq_company_question_level"),
+    )
+
+
+class QuestionSubmission(Base, TimestampMixin):
+    """A user-contributed question awaiting human review (spec sections 37 and 38).
+
+    Kept in its own table rather than as a draft row in ``questions``. A pending
+    submission is not a question yet: it has been screened but not approved, and putting
+    it in the corpus table would make "is this reviewed?" a filter that some future query
+    forgets to apply. Separate tables make the unreviewed state impossible to serve by
+    accident.
+
+    The screening result is stored alongside the text, so a reviewer sees what the filter
+    found and why it escalated, rather than being asked to re-derive it.
+    """
+
+    __tablename__ = "question_submissions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), index=True
+    )
+
+    # Post-redaction text. The raw submission is deliberately never persisted: storing it
+    # would keep the personal data the screening step exists to remove.
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    company_slug: Mapped[str | None] = mapped_column(String(120), index=True)
+    role_family: Mapped[str | None] = mapped_column(String(120))
+    level: Mapped[str | None] = mapped_column(String(60))
+    interview_round: Mapped[str | None] = mapped_column(String(60))
+    interview_type: Mapped[str | None] = mapped_column(String(60))
+    concept_keys: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    asked_on: Mapped[date | None] = mapped_column(Date)
+
+    # --- Review state ------------------------------------------------------
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending", index=True
+    )
+    safety_verdict: Mapped[str] = mapped_column(String(20), nullable=False, default="accept")
+    safety_findings: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    review_reasons: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    near_duplicates: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    duplicate_of_slug: Mapped[str | None] = mapped_column(String(200))
+
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewer_note: Mapped[str | None] = mapped_column(Text)
+
+    # Set once a reviewer promotes the submission into the corpus.
+    published_question_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("questions.id", ondelete="SET NULL")
+    )
+
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'duplicate')",
+            name="submission_status_enum",
+        ),
+        CheckConstraint(
+            "safety_verdict IN ('accept', 'review', 'block')", name="submission_verdict_enum"
+        ),
+        CheckConstraint("difficulty BETWEEN 1 AND 5", name="submission_difficulty_range"),
+        Index("ix_question_submissions_status_created", "status", "created_at"),
     )

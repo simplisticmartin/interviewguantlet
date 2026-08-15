@@ -18,7 +18,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
-from apps.api.routers import auth, catalog, interviews, jobs, progress, resumes
+from apps.api.routers import (
+    auth,
+    catalog,
+    contributions,
+    interviews,
+    jobs,
+    progress,
+    resumes,
+)
 from apps.api.schemas import HealthResponse
 from gauntlet import __version__
 from gauntlet.config import get_settings
@@ -111,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(interviews.router)
     app.include_router(catalog.router)
     app.include_router(progress.router)
+    app.include_router(contributions.router)
 
     @app.exception_handler(OperationalError)
     async def database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
