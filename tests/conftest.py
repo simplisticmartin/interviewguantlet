@@ -32,6 +32,9 @@ from gauntlet.skills.mastery import Evidence
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "requires_db: needs a reachable Postgres instance")
+    config.addinivalue_line(
+        "markers", "requires_docker: needs a reachable Docker daemon for the sandbox"
+    )
 
 
 @pytest.fixture(autouse=True)

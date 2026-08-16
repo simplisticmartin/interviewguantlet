@@ -31,6 +31,7 @@ from apps.api.schemas import HealthResponse
 from gauntlet import __version__
 from gauntlet.config import get_settings
 from gauntlet.db.session import database_available
+from gauntlet.execution.sandbox import sandbox_available
 from gauntlet.llm.embeddings import get_embedder
 from gauntlet.observability import (
     add_trace_context,
@@ -97,6 +98,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         database=database_available(),
         durable_checkpoints=RUNTIME.durable_checkpoints,
         tracing=tracing_active(),
+        sandbox=sandbox_available(),
     )
     try:
         yield
@@ -212,6 +214,9 @@ def create_app() -> FastAPI:
             llm_degraded=resolved != settings.llm_provider,
             durable_checkpoints=RUNTIME.durable_checkpoints,
             semantic_embeddings=get_embedder().is_semantic,
+            # Surfaced for the same reason as llm_degraded: nobody should assume a
+            # submission was executed when no sandbox was available to execute it.
+            sandbox=sandbox_available(),
         )
 
     return app

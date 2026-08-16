@@ -232,6 +232,7 @@ class HealthResponse(BaseModel):
     llm_degraded: bool
     durable_checkpoints: bool
     tracing: bool = False
+    sandbox: bool = False
     semantic_embeddings: bool
 
 

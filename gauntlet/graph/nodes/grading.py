@@ -8,6 +8,7 @@ from typing import Any
 import structlog
 
 from gauntlet.evaluation.engine import EvaluationEngine
+from gauntlet.execution.sandbox import run_code
 from gauntlet.execution.static_check import check_code
 from gauntlet.graph.nodes.questioning import _question_spec_dict
 from gauntlet.graph.state import (
@@ -23,12 +24,16 @@ log = structlog.get_logger(__name__)
 
 
 def check_submitted_code(state: InterviewState) -> dict[str, Any]:
-    """Statically analyse submitted code.
+    """Analyse submitted code, and run it when a sandbox is available.
 
-    Nothing is executed here (see :mod:`gauntlet.execution.static_check`). The signals
-    this produces - unparseable, nested loops, no empty-input guard - are what the
-    interviewer uses to choose its next question, which is exactly how a human
-    interviewer reads a submission before the tests have even run.
+    Static analysis always runs. Its signals - unparseable, nested loops, no empty-input
+    guard - are what the interviewer uses to choose its next question, which is how a
+    human interviewer reads a submission before any test has run.
+
+    Execution is additive and optional (spec section 17). When Docker is reachable the
+    submission also runs inside an ephemeral, network-less, resource-capped container. If
+    it is not reachable, the interview continues on static analysis alone and the state
+    records that nothing ran. Candidate code is never executed on the host.
     """
     answer = AnswerPayload.model_validate(state.get("pending_answer") or {})
     source = answer.code or answer.text
@@ -36,17 +41,40 @@ def check_submitted_code(state: InterviewState) -> dict[str, Any]:
         return {"code_check": None}
 
     result = check_code(source, answer.language)
+    notes = [f"Code check: {signal}" for signal in result.interviewer_signals]
+    payload = result.as_dict()
+
+    # Only run code that parses. Feeding a syntax error to the sandbox spends a container
+    # to learn what the parser already said.
+    run: dict[str, Any] | None = None
+    if result.syntax_ok:
+        # The checker's resolved language, not the raw payload field, which may be unset.
+        outcome = run_code(source, result.language)
+        run = outcome.as_dict()
+        if outcome.executed:
+            if outcome.timed_out:
+                notes.append(
+                    "Execution: the submission did not terminate within the time limit."
+                )
+            elif outcome.exit_code != 0:
+                notes.append(
+                    "Execution: the submission exited with an error. "
+                    f"{outcome.stderr.strip()[:200]}"
+                )
+            else:
+                notes.append("Execution: the submission ran cleanly.")
+
+    payload["execution"] = run
+
     log.info(
         "graph.code_check",
         session=state.get("session_id"),
         language=result.language,
         syntax_ok=result.syntax_ok,
         loop_depth=result.max_loop_depth,
+        executed=bool(run and run["executed"]),
     )
-    return {
-        "code_check": result.as_dict(),
-        "interviewer_notes": [f"Code check: {signal}" for signal in result.interviewer_signals],
-    }
+    return {"code_check": payload, "interviewer_notes": notes}
 
 
 def evaluate_answer(state: InterviewState) -> dict[str, Any]:
