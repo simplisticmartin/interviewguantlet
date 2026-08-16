@@ -231,6 +231,7 @@ class HealthResponse(BaseModel):
     llm_provider: str
     llm_degraded: bool
     durable_checkpoints: bool
+    tracing: bool = False
     semantic_embeddings: bool
 
 

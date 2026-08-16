@@ -22,6 +22,8 @@ from pydantic import BaseModel
 
 from gauntlet.llm.base import LLMProvider, StructuredResult
 from gauntlet.llm.registry import get_provider
+from gauntlet.observability.cost import record_cost
+from gauntlet.observability.tracing import record_llm_call, span
 from gauntlet.prompts.registry import PromptTemplate, wrap_untrusted
 
 log = structlog.get_logger(__name__)
@@ -77,16 +79,37 @@ class Agent:
             model=response_model.__name__,
         )
 
-        result = self.provider.complete_structured(
-            system=system,
-            user=user,
-            response_model=response_model,
-            role=template.role,
-            temperature=template.temperature,
-            max_tokens=template.max_tokens,
-            prompt_name=template.name,
-            prompt_version=template.version,
-        )
+        # One span per agent call. This is the level worth measuring: an interview turn
+        # fans out into several of these, and "which agent was slow" is the question that
+        # per-request timing cannot answer.
+        with span(
+            f"agent.{self.key}",
+            **{
+                "gauntlet.agent": self.key,
+                "gauntlet.prompt.name": template.name,
+                "gauntlet.prompt.version": template.version,
+                "gauntlet.response_model": response_model.__name__,
+            },
+        ) as active:
+            result = self.provider.complete_structured(
+                system=system,
+                user=user,
+                response_model=response_model,
+                role=template.role,
+                temperature=template.temperature,
+                max_tokens=template.max_tokens,
+                prompt_name=template.name,
+                prompt_version=template.version,
+            )
+
+            cost = record_llm_call(
+                active,
+                provider=result.provider,
+                model=result.model,
+                usage=result.usage,
+                attempts=result.attempts,
+            )
+            record_cost(result.model, result.usage)
 
         log.info(
             "agent.result",
@@ -96,5 +119,8 @@ class Agent:
             model=result.model,
             attempts=result.attempts,
             tokens=result.usage.total_tokens,
+            # None when the model is not in the price table. Logged as-is rather than
+            # coerced to 0.0, which would read as a free call.
+            cost_usd=cost,
         )
         return result

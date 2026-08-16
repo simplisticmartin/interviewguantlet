@@ -231,7 +231,74 @@ reconstructed from anything.
 
 ---
 
-## 6. Provider portability
+## 6. Observability
+
+An interview is one HTTP request that fans out into a dozen model calls across seven or
+more graph nodes. When one is slow or expensive, per-call logs tell you *that* something
+took eleven seconds, not *which* part of which turn. Spans nest, so they answer the
+question logs structurally cannot.
+
+**Instrumentation is unconditional. Collection is opt-in.**
+
+The OpenTelemetry API ships a no-op tracer, so `span()` costs almost nothing when no SDK
+is installed. That means there is no `if tracing_enabled:` scattered through the interview
+logic, and no second code path that only runs in production. Turning collection on:
+
+```
+pip install -e ".[otel]"
+GAUNTLET_OTEL_ENABLED=true GAUNTLET_OTEL_ENDPOINT=http://localhost:4317
+```
+
+With tracing on but no endpoint set, spans print to the console rather than vanishing.
+A misconfigured collector and a working one should not look identical.
+
+**Where spans come from.** Nodes are wrapped at registration rather than decorated
+individually, so a node added tomorrow is traced without anyone remembering to do it, and
+`gauntlet/graph/nodes.py` stays free of observability imports. Each node span records
+which state keys it wrote, which is the most useful single fact when reading the trace of
+a state machine. Agent spans are created in `Agent.invoke`, the one funnel every model
+call already passes through, so they nest inside the node that made them.
+
+Model call attributes follow the OpenTelemetry GenAI semantic conventions
+(`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`), so the spans mean
+something to tooling that was not written for this project.
+
+**Tracing observes and never participates.** The span wrapper returns the node's result
+untouched and re-raises every exception after recording it. Instrumentation that can
+change a return value or swallow an error is a liability, not a diagnostic, and there are
+tests asserting exactly this.
+
+**Logs and traces are joined.** A structlog processor stamps the active trace and span id
+onto every log line, and the API returns the trace id in an `X-Trace-Id` header. Without
+that, tracing and logging are two accounts of the same incident that cannot be lined up.
+
+### Cost accounting
+
+"What did this interview cost?" cannot be answered from token counts, because every model
+prices differently, so `gauntlet/observability/cost.py` holds a price table keyed by model
+family prefix. Prefixes rather than exact ids: vendors append dates and version suffixes
+constantly, and an exact-match table goes stale the moment a new snapshot ships.
+
+**An unknown model returns `None`, never zero.** This is the decision worth defending.
+Reporting `$0.00` for a model missing from the table produces a total that looks
+authoritative and is wrong, and that is the kind of wrong that survives all the way into a
+budget spreadsheet. `None` propagates as "unknown", a `CostTally` that skipped a call
+reports `complete=False`, and the phrasing changes from "$0.42" to "at least $0.42". Free
+and unknown are different claims and the code keeps them apart: the offline provider is
+priced at zero because it genuinely is free.
+
+The tally is a context variable rather than a parameter threaded through twenty
+signatures, scoped per request. Ambient bookkeeping does not belong in the interview
+logic's interface, and per-request scoping stops two concurrent interviews pooling their
+spend into one number.
+
+Prices are estimates recorded at a point in time and are labelled as such. Querying a
+pricing API would be more accurate and would put a network call on a path that must work
+offline, which is a bad trade for a figure shown to four decimal places.
+
+---
+
+## 7. Provider portability
 
 The component most likely to change in an AI product is the model provider. Prices,
 capabilities and availability all move on a monthly cadence, and being locked to one
@@ -277,7 +344,7 @@ The practical payoff is that the same interview can run on a frontier model, on 
 7B model on a laptop with no network, or on the offline rule based engine, and nothing
 above the provider boundary changes. `gauntlet-providers` prints the current state.
 
-## 7. Things deliberately not done
+## 8. Things deliberately not done
 
 Recording these so they read as decisions rather than oversights.
 

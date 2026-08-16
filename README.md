@@ -411,15 +411,14 @@ graders, misconception detection, a skill profile that persists across interview
 over time, confidence calibration, spaced repetition scheduling, hiring committee summaries,
 scorecards, study plans, question search, company simulation, question deduplication, failure
 replay, three MCP tool servers, user contributed questions with safety screening and a
-moderation queue, the grading benchmark and its regression test, the API, and the web
-interface.
+moderation queue, distributed tracing with per interview cost accounting, the grading
+benchmark and its regression test, the API, and the web interface.
 
 **Partly built:**
 
 | Area | Exists | Missing |
 |---|---|---|
 | Code execution | Analysis that produces real interview signals | No sandbox. Nothing is run |
-| Monitoring | Detailed logs including cost per interview | No distributed tracing |
 
 **Not started:** importing questions from external sources, voice interviews, and a full
 multi round loop.

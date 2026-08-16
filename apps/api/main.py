@@ -32,6 +32,14 @@ from gauntlet import __version__
 from gauntlet.config import get_settings
 from gauntlet.db.session import database_available
 from gauntlet.llm.embeddings import get_embedder
+from gauntlet.observability import (
+    add_trace_context,
+    configure_tracing,
+    cost_scope,
+    current_trace_id,
+    span,
+    tracing_active,
+)
 from gauntlet.services.runtime import RUNTIME
 
 log = structlog.get_logger(__name__)
@@ -45,6 +53,9 @@ def configure_logging() -> None:
     processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        # Stamps trace and span ids so a log line and a span can be found from each
+        # other. A no-op when nothing is tracing.
+        add_trace_context,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -66,6 +77,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
 
+    configure_tracing()
     RUNTIME.start()
 
     if settings.resolved_provider() != settings.llm_provider:
@@ -84,6 +96,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         provider=settings.resolved_provider(),
         database=database_available(),
         durable_checkpoints=RUNTIME.durable_checkpoints,
+        tracing=tracing_active(),
     )
     try:
         yield
@@ -120,6 +133,46 @@ def create_app() -> FastAPI:
     app.include_router(catalog.router)
     app.include_router(progress.router)
     app.include_router(contributions.router)
+
+    @app.middleware("http")
+    async def observe_request(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """One span per request, wrapping a cost scope for that request's model calls.
+
+        The scope lives here rather than around the graph run so that anything a
+        request triggers is counted, and so two concurrent requests cannot pool their
+        spend into one number.
+        """
+        with (
+            span(
+                f"{request.method} {request.url.path}",
+                **{
+                    "http.request.method": request.method,
+                    "url.path": request.url.path,
+                },
+            ) as active,
+            cost_scope() as tally,
+        ):
+            response = await call_next(request)
+            active.set_attribute("http.response.status_code", response.status_code)
+            if tally.calls:
+                active.set_attribute("gauntlet.cost.calls", tally.calls)
+                active.set_attribute("gauntlet.cost.tokens", tally.total_tokens)
+                active.set_attribute("gauntlet.cost.usd", tally.usd)
+                # Says whether that figure is the whole story or a floor.
+                active.set_attribute("gauntlet.cost.complete", tally.complete)
+                log.info(
+                    "request.cost",
+                    path=request.url.path,
+                    calls=tally.calls,
+                    tokens=tally.total_tokens,
+                    cost=tally.describe(),
+                )
+            trace_id = current_trace_id()
+            if trace_id:
+                # Lets a user quote one id from a failure and have it found in the trace
+                # store, without exposing anything about internal structure.
+                response.headers["X-Trace-Id"] = trace_id
+            return response
 
     @app.exception_handler(OperationalError)
     async def database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:

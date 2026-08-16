@@ -91,6 +91,15 @@ class Settings(BaseSettings):
     min_questions_per_interview: int = 4
     multi_judge_enabled: bool = True
 
+    # --- Observability (spec section 43) -------------------------------------
+    # Off by default. Spans are always created, but with no SDK installed they hit the
+    # OpenTelemetry no-op tracer and cost nothing, so this only controls collection.
+    otel_enabled: bool = False
+    otel_service_name: str = "gauntlet-api"
+    # Empty means export spans to the console, which is useful locally and makes a
+    # misconfigured collector obvious instead of silent.
+    otel_endpoint: str = ""
+
     # --- Uploads ------------------------------------------------------------
     upload_dir: Path = REPO_ROOT / "uploads"
     max_upload_bytes: int = 5 * 1024 * 1024

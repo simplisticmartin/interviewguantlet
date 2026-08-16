@@ -55,36 +55,62 @@ from gauntlet.graph.nodes import (
     wait_for_candidate,
 )
 from gauntlet.graph.state import InterviewState
+from gauntlet.observability.tracing import span
 
 log = structlog.get_logger(__name__)
+
+
+def traced(name: str, node: Any) -> Any:
+    """Wrap a node so every execution becomes a span.
+
+    Applied at registration rather than as a decorator on each node function, so the
+    node modules stay free of observability imports and a new node cannot be added
+    without being traced. The wrapper returns the node's result untouched: tracing
+    observes, it never participates.
+    """
+
+    def run(state: InterviewState, *args: Any, **kwargs: Any) -> Any:
+        with span(f"node.{name}", **{"gauntlet.node": name}) as active:
+            result = node(state, *args, **kwargs)
+            # Which keys a node wrote is the single most useful thing to see when
+            # reading a trace of a state machine.
+            if isinstance(result, dict):
+                active.set_attribute("gauntlet.node.updates", ",".join(sorted(result)))
+            return result
+
+    run.__name__ = getattr(node, "__name__", name)
+    return run
 
 
 def build_interview_graph() -> StateGraph:
     """Assemble the graph. Compilation (and the checkpointer) is the caller's choice."""
     graph: StateGraph = StateGraph(InterviewState)
 
+    def add_node(name: str, node: Any) -> None:
+        graph.add_node(name, traced(name, node))
+
     # --- Intake -----------------------------------------------------------
-    graph.add_node("parse_candidate", parse_candidate)
-    graph.add_node("analyze_job", analyze_job)
-    graph.add_node("retrieve_company_patterns", retrieve_company_patterns)
-    graph.add_node("build_interview_plan", build_interview_plan)
+    add_node("parse_candidate", parse_candidate)
+    add_node("analyze_job", analyze_job)
+    add_node("retrieve_company_patterns", retrieve_company_patterns)
+    add_node("build_interview_plan", build_interview_plan)
 
     # --- Interview loop ---------------------------------------------------
-    graph.add_node("select_question", select_question)
-    graph.add_node("ask_question", ask_question)
-    graph.add_node("wait_for_candidate", wait_for_candidate)
-    graph.add_node("classify_response", classify_response)
-    graph.add_node("answer_clarification", answer_clarification)
-    graph.add_node("wait_after_clarification", wait_after_clarification)
-    graph.add_node("check_code", check_submitted_code)
-    graph.add_node("evaluate_answer", evaluate_answer)
-    graph.add_node("update_skill_graph", update_skill_graph)
-    graph.add_node("misconception_check", misconception_check)
-    graph.add_node("coach_candidate", coach_candidate)
-    graph.add_node("adaptive_router", adaptive_router)
+    add_node("select_question", select_question)
+    add_node("ask_question", ask_question)
+    add_node("wait_for_candidate", wait_for_candidate)
+    add_node("classify_response", classify_response)
+    add_node("answer_clarification", answer_clarification)
+    add_node("wait_after_clarification", wait_after_clarification)
+    add_node("check_code", check_submitted_code)
+    add_node("evaluate_answer", evaluate_answer)
+    add_node("update_skill_graph", update_skill_graph)
+    add_node("misconception_check", misconception_check)
+    add_node("coach_candidate", coach_candidate)
+    add_node("adaptive_router", adaptive_router)
 
     # --- Report -----------------------------------------------------------
-    graph.add_node("report", build_report)
+    add_node("report", build_report)
 
     graph.add_edge(START, "parse_candidate")
     graph.add_edge("parse_candidate", "analyze_job")
