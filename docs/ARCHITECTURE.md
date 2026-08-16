@@ -298,6 +298,41 @@ offline, which is a bad trade for a figure shown to four decimal places.
 
 ---
 
+### Question variants
+
+Seventy five authored questions is thin by a candidate's fourth interview. They start
+recognising the wording, at which point the tool is measuring memory of itself rather than
+knowledge.
+
+Variants reframe an existing question without a model, so they cost nothing and work on
+the offline path. Generation is deterministic, seeded from the question slug and framing,
+so an interview stays reproducible from its checkpoint and the output is testable.
+
+**The invariant is that framing changes and meaning does not.** Every question is graded
+against a rubric keyed to what it asks. A template that quietly turned "walk me through a
+HashMap put" into "compare HashMap and TreeMap" would leave the rubric grading something
+nobody was asked, and the candidate marked down for correctly answering the question in
+front of them. So templates only wrap: a short situation before, a constraint after, never
+a rewrite.
+
+That invariant is verified rather than asserted. Every generated variant is run back
+through the deduplicator and must still be detected as a duplicate of its source, with a
+margin. Two templates were caught by this and shortened: piling a long preamble and a
+trailing instruction onto a 65 character question diluted it below the duplicate
+threshold, which is the same failure as burying the question for the candidate.
+
+Variants enter retrieval one step before the fallback that abandons the concept, because
+reframing a question on the right topic keeps an interview coherent in a way that
+switching topic does not. They score below any real retrieval result, so a genuinely
+unseen question always wins.
+
+The direct framing is the source question verbatim, which made it the one framing that
+must never be offered for a question already asked. Missing that caused the interviewer to
+repeat itself, and it was the behaviour suite rather than the unit tests that caught it:
+the defect was in what "already seen" meant, not in how variants were built.
+
+---
+
 ## 7. Provider portability
 
 The component most likely to change in an AI product is the model provider. Prices,

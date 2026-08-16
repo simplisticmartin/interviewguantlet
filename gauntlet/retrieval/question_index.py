@@ -200,6 +200,40 @@ class QuestionIndex:
         results.sort(key=lambda item: item.score, reverse=True)
         return results[:limit]
 
+    def _variants_for(
+        self,
+        concept_keys: list[str],
+        interview_type: InterviewType | None,
+        exclude_slugs: frozenset[str],
+        limit: int,
+    ) -> list[RetrievedQuestion]:
+        """Reframed versions of exhausted questions on the requested concepts.
+
+        Only questions the candidate has already been asked are reframed: an unseen
+        question is always better than a new frame on a seen one, and the earlier search
+        steps have already established there are none left.
+        """
+        from gauntlet.content.variants import as_seed, pick_variant
+
+        wanted = set(concept_keys)
+        results: list[RetrievedQuestion] = []
+        for seed in self.seeds:
+            if seed.slug not in exclude_slugs:
+                continue
+            if wanted and not wanted.intersection(seed.concept_keys):
+                continue
+            if interview_type and seed.interview_type is not interview_type:
+                continue
+            variant = pick_variant(seed, seen_slugs=exclude_slugs)
+            if variant is None:
+                continue
+            # Scored below anything real retrieval returns, so a variant is never
+            # preferred over an actual unseen question.
+            results.append(RetrievedQuestion(seed=as_seed(variant, seed), score=0.1))
+            if len(results) >= limit:
+                break
+        return results
+
     def for_concepts(
         self,
         concept_keys: list[str],
@@ -242,6 +276,14 @@ class QuestionIndex:
         )
         if widened:
             return widened
+
+        # Before giving up the concept, try reframing a question on the right concept
+        # that the candidate has already seen (spec section 39). On a fourth interview
+        # the corpus runs dry concept by concept, and asking a known question in a new
+        # frame keeps the interview coherent where switching concept does not.
+        reframed = self._variants_for(concept_keys, interview_type, exclude_slugs, limit)
+        if reframed:
+            return reframed
 
         # Only now give up the concept, keeping type and difficulty band.
         return self.search(
