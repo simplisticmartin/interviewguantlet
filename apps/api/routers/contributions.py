@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from apps.api.deps import RateLimiter, get_current_candidate, get_db
 from apps.api.schemas import (
+    BulkImportRequest,
+    BulkImportResponse,
     ContributionRequest,
     ContributionResponse,
     ModerationDecision,
@@ -27,6 +29,7 @@ from apps.api.schemas import (
 )
 from gauntlet.db.models import Candidate, QuestionSubmission, User
 from gauntlet.ingestion.pipeline import Submission
+from gauntlet.ingestion.sources import import_payload
 from gauntlet.services import contributions
 from gauntlet.services.contributions import ContributionError
 
@@ -126,6 +129,42 @@ def contribute(
         review_reasons=list(row.review_reasons),
         duplicate_of=row.duplicate_of_slug,
         message=message,
+    )
+
+
+@router.post(
+    "/contributions/import",
+    response_model=BulkImportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(contribution_rate_limit)],
+)
+def bulk_import(
+    payload: BulkImportRequest,
+    _: Candidate = Depends(get_current_candidate),
+) -> BulkImportResponse:
+    """Import a file of your own interview notes.
+
+    Every record goes through the same screening, deduplication and review queue as a
+    single submission. Nothing is published, and a large tidy file buys no trust.
+    """
+    try:
+        report = import_payload(payload.payload, source_key=payload.source)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    return BulkImportResponse(
+        source=report.source,
+        parsed=report.parsed,
+        queued=report.queued,
+        duplicates=report.duplicates,
+        rejected=report.rejected,
+        rejections=report.rejections,
+        message=(
+            f"{report.summary()}. Queued questions are awaiting review and are not "
+            "published yet."
+        ),
     )
 
 

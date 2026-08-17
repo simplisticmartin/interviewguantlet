@@ -344,7 +344,7 @@ exactly what the benchmark is for.
 ### Commands
 
 ```bash
-pytest                        # 194 tests
+pytest                        # 695 tests
 ruff check .                  # linting
 mypy apps gauntlet            # type checking
 python -m evals.runner        # grade the grader
@@ -362,7 +362,7 @@ Tests need no API key and make no network calls.
 Browser  ->  React and TypeScript front end
               |
               v
-API      ->  FastAPI, 21 endpoints
+API      ->  FastAPI, 31 endpoints
               |
               v
 Engine   ->  LangGraph state machine
@@ -398,7 +398,7 @@ gauntlet/       the interview engine
   llm/            provider integrations
 docs/           architecture notes
 evals/          the graded benchmark
-tests/          194 tests
+tests/          695 tests
 ```
 
 ---
@@ -411,24 +411,35 @@ graders, misconception detection, a skill profile that persists across interview
 over time, confidence calibration, spaced repetition scheduling, hiring committee summaries,
 scorecards, study plans, question search, company simulation, question deduplication, failure
 replay, three MCP tool servers, user contributed questions with safety screening and a
-moderation queue, distributed tracing with per interview cost accounting, offline
-question variant generation, the grading benchmark and its regression test, the API, and
-the web interface.
+moderation queue, bulk import of your own interview notes, sandboxed code execution,
+multi round interview loops, distributed tracing with per interview cost accounting,
+offline question variant generation, the grading benchmark and its regression test, the
+API, and the web interface.
 
 **Partly built:**
 
 | Area | Exists | Missing |
 |---|---|---|
-| Code execution | Analysis that produces real interview signals | No sandbox. Nothing is run |
+| Voice interviews | Transcript cleanup, turn taking, timing signals | No speech to text or text to speech provider is wired, so it cannot run end to end |
+| External sources | An adapter interface, and import of your own notes | No third party sources, which is a deliberate choice rather than a gap. See below |
 
-**Not started:** importing questions from external sources, voice interviews, and a full
-multi round loop.
+**Deliberately not built:** adapters that scrape interview aggregator sites, paywalled
+question banks, or leaked assessments. Their terms forbid it, the text belongs to whoever
+wrote it, and the project already refuses that material from an individual contributor.
+Collecting it in bulk because it happens to be on a web page would be the same refusal
+with the effort hidden behind an adapter.
 
-**Not yet verified end to end:** the paths requiring a live database, meaning migrations,
-the data loader, and 29 API tests including the contribution and moderation flow. They are
-written and skip cleanly with a clear message when Postgres is unavailable, but have not
-been executed against a running instance. A separate test compares every migration against
-the models without needing a database, which catches schema drift but not invalid SQL.
+**Not yet verified end to end:** two things, both for the same reason. The paths requiring
+a live database, meaning migrations, the data loader, and 29 API tests including the
+contribution and moderation flow. And the 11 sandbox tests that actually execute code.
+All of them are written and skip cleanly with an actionable message. Docker has not
+started in the development environment, so neither group has ever run.
+
+Two tests exist specifically because of that gap. One compares every migration against the
+models without needing a database, which catches schema drift but not invalid SQL. The
+other asserts every sandbox hardening flag from the generated argv without needing a
+daemon, because a silently dropped network isolation flag looks exactly like a working
+sandbox until it is not.
 
 ---
 

@@ -120,9 +120,11 @@ The coding server exposes no `compile_code`, `run_visible_tests` or `run_hidden_
 and a test asserts those names are absent from the manifest. A tool that claims to run
 tests and does not is a worse failure than a missing tool, because the caller believes it.
 
-**What is still missing** is the sandbox itself: ephemeral containers, no network, hard
-CPU, memory and wall-clock limits, guaranteed teardown. Until that exists the coding
-server analyses and does not execute, and says so in every response.
+The sandbox now exists (section 5), and the coding server still does not expose it. That
+is deliberate rather than an oversight. Running a candidate's own submission inside our own
+interview flow is a different proposition from handing an arbitrary MCP client a code
+execution primitive, and the second is a much larger thing to be responsible for. The
+server analyses, and says so in every response.
 
 ---
 
@@ -195,7 +197,47 @@ encoded in one auditable place.
 
 ---
 
-## 5. Deployment
+## 5. Sandboxed execution
+
+Candidate code is hostile input. It is written by someone we cannot vouch for, it can hang
+or allocate without bound by accident, and in a hosted deployment some of it will be
+written by someone actively trying to get out.
+
+So there is exactly one place it runs, and a list of flags that each stop something
+specific:
+
+| Flag | What it stops |
+|---|---|
+| `--network none` | Exfiltration and command and control, in one flag |
+| `--read-only` plus a `noexec` tmpfs | Writing to the image, and staging a dropped binary |
+| `--cap-drop ALL`, `no-new-privileges` | Privilege escalation, including through a setuid binary in the image |
+| `--user 65534` | Running as root inside the container |
+| `--cpus`, `--memory`, `--memory-swap` | Infinite loops and unbounded allocation. Swap is pinned to memory, or the memory cap is only advisory |
+| `--pids-limit` | Fork bombs, which none of the other limits catch |
+| `--rm` plus named teardown | The sandbox becoming its own resource leak |
+
+**There is no fallback path, and that is the important part.** When Docker is unavailable
+this returns `executed=False` with a reason and the interview continues on static analysis.
+It never degrades to `subprocess`, `exec` or a thread, because a degraded sandbox is not a
+sandbox and the failure mode is arbitrary code execution on the host. A test asserts that
+absence rather than trusting anyone to remember it.
+
+**Testing a sandbox on a machine with no Docker.** The security posture is a pure function
+of the argv, so `build_argv` is a separate function and every hardening flag is asserted
+with no daemon anywhere. This mattered more than expected: Docker never started once during
+development, and a silently dropped `--network none` looks exactly like a working sandbox
+until it is not. Twenty nine of the sandbox tests run without Docker. Eleven that genuinely
+execute code, including one that tries to open a socket and one that tries to write to the
+root filesystem, are marked and skip.
+
+Results are shaped so that "did not run" can never be read as "failed": `passed` is False
+whenever `executed` is False. Unparseable code is never sent to the sandbox, since spending
+a container to rediscover a syntax error is waste, and each test case gets a fresh container
+so state from one cannot change another's result.
+
+---
+
+## 6. Deployment
 
 The API image (`infra/api.Dockerfile`) runs migrations then serves under a non-root user.
 The stack is Kubernetes-ready in the ways that matter:
@@ -231,7 +273,7 @@ reconstructed from anything.
 
 ---
 
-## 6. Observability
+## 7. Observability
 
 An interview is one HTTP request that fans out into a dozen model calls across seven or
 more graph nodes. When one is slow or expensive, per-call logs tell you *that* something
@@ -333,7 +375,7 @@ the defect was in what "already seen" meant, not in how variants were built.
 
 ---
 
-## 7. Provider portability
+## 8. Provider portability
 
 The component most likely to change in an AI product is the model provider. Prices,
 capabilities and availability all move on a monthly cadence, and being locked to one
@@ -379,7 +421,84 @@ The practical payoff is that the same interview can run on a frontier model, on 
 7B model on a laptop with no network, or on the offline rule based engine, and nothing
 above the provider boundary changes. `gauntlet-providers` prints the current state.
 
-## 8. Things deliberately not done
+## 9. Multi round loops
+
+A real hiring process is not one interview. It is a screen, two or three technical rounds
+and a hiring manager, and the rounds are not independent: what the screen established is
+not re-established later, and a doubt raised in round two is what round three goes after.
+Practising single isolated interviews misses the part candidates find hardest, which is
+sustaining a level across a day.
+
+A loop is a plan plus the sessions run against it. There is no separate progress table,
+because the rounds that exist are the sessions carrying the loop id, and a duplicated
+counter is exactly the thing that drifts out of sync with reality.
+
+**On simulated rejection.** Real loops drop people between rounds, and a practice tool that
+never does is teaching the wrong shape. But a weak round never locks the candidate out. It
+is reported as "in a real loop this is usually where you would not advance", with the
+reason, and the next round stays open. The signal is delivered and the practice is not
+confiscated. Anything else would be a tool that fails someone on a simulation and presents
+it as a verdict, and the tests pin that behaviour rather than leaving it to good intentions.
+
+The loop shape comes from the company catalogue, which holds estimates rather than observed
+reports, so the plan carries its own evidence level and disclaimer into the final debrief.
+A generic loop is described as a generic loop instead of being dressed up as insider
+knowledge.
+
+---
+
+## 10. Voice
+
+Built above the speech layer. **No recognition or synthesis vendor is wired up**, so voice
+interviews cannot run end to end, and `readiness()` reports exactly that rather than a stub
+that would make the feature look finished.
+
+What is built is the part that is actually hard, and it is a fairness problem rather than a
+plumbing one. A transcript of a good spoken answer contains "um", restarts, self corrections
+and repetition. None of that says anything about whether the candidate knows the material,
+but feed it to a grader calibrated on written answers and the candidate is marked down for
+speaking like a person. That penalty does not fall evenly. It falls hardest on people
+speaking a second language, on anyone nervous, and on people who think out loud, which is
+the behaviour interviewers explicitly ask for.
+
+So the transcript is normalised before grading and the original kept beside it. The line is
+precise: disfluency is removed, hedging never is. "I think it is probably B" and "it is B"
+are different answers, the second is not an improvement on the first, and the confidence
+calibration model reads the difference directly. Stripping hedging would inflate the answer
+and corrupt a measurement the product depends on.
+
+Timing is kept as observation and never folded into a score. A long pause before answering
+is real interview signal, and slow is not wrong. Turn detection doubles its patience while
+someone is audibly mid thought, because cutting a candidate off for thinking punishes
+exactly the behaviour the format asks for.
+
+---
+
+## 11. Source adapters, and the ones deliberately absent
+
+An adapter turns an external format into candidate submissions and hands them to the
+existing pipeline. It gets no private path into the corpus: everything goes through the
+same safety screen, deduplication and human review queue as a question typed in by one
+person. A thousand questions arriving at once is a reason for more scrutiny, not less, and
+a large tidy file buys no trust.
+
+**Why there are no scraper adapters.** The obvious sources are the interview aggregator
+sites, and Gauntlet does not scrape them. Their terms forbid it, the text is often someone
+else's copyrighted writing, and a good share of what is posted was not the poster's to
+share in the first place. The project already refuses leaked assessments from an individual
+contributor. Harvesting the same material in bulk because it sits on a web page would be
+that same refusal with the effort hidden behind an adapter. The rule is the source's terms
+and the poster's right to share, not whether the text is reachable over HTTP.
+
+What exists instead is the adapter that is lawful and genuinely wanted: importing a
+candidate's own notes, in JSON, CSV or markdown, because people keep a file of questions
+they were asked and retyping forty of them through a web form is the reason those notes
+never get contributed. The refusals are written down in code, so the absence reads as a
+decision rather than as something nobody got around to.
+
+---
+
+## 12. Things deliberately not done
 
 Recording these so they read as decisions rather than oversights.
 

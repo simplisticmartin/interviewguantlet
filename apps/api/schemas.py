@@ -308,3 +308,20 @@ class ModerationDecision(BaseModel):
     interview_type: Annotated[str | None, Field(max_length=60)] = None
     concept_keys: Annotated[list[str] | None, Field(max_length=10)] = None
     difficulty: Annotated[int | None, Field(ge=1, le=5)] = None
+
+
+class BulkImportRequest(BaseModel):
+    """A file of the contributor's own interview notes, as JSON, CSV or markdown."""
+
+    payload: Annotated[str, Field(min_length=1, max_length=200_000)]
+    source: Annotated[str, Field(max_length=40)] = "own_notes"
+
+
+class BulkImportResponse(BaseModel):
+    source: str
+    parsed: int
+    queued: int
+    duplicates: int
+    rejected: int
+    rejections: list[dict[str, str]]
+    message: str
