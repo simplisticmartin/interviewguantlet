@@ -55,8 +55,9 @@ class SandboxLimits:
 
     ``cpus`` and ``timeout_seconds`` bound an infinite loop. ``memory`` bounds an
     unbounded allocation. ``pids`` bounds a fork bomb, which the other three do not.
-    ``output_bytes`` bounds a program that prints forever, which would otherwise exhaust
-    memory in *this* process rather than the container.
+    ``output_bytes`` bounds a program that prints forever. Output is spooled to a file
+    and only this many bytes are ever read into memory, because the container's memory
+    limit does not cover what has already crossed the pipe onto the host.
     """
 
     cpus: float = 0.5
@@ -247,37 +248,57 @@ def run_code(
             limits=limits,
         )
 
-        try:
-            completed = subprocess.run(  # fixed argv, never a shell string
-                argv,
-                input=stdin,
-                capture_output=True,
-                text=True,
-                # Slightly beyond the container's own limits, so this is the backstop
-                # for a wedged client rather than the primary timeout.
-                timeout=limits.timeout_seconds + 5,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            _force_remove(container_name)
-            return SandboxResult(
-                executed=True,
-                language=normalised,
-                timed_out=True,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                stderr="Execution exceeded the time limit and was stopped.",
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            _force_remove(container_name)
-            log.warning("sandbox.failed", error=str(exc)[:200])
-            return SandboxResult(
-                executed=False,
-                language=normalised,
-                unavailable_reason=f"Sandbox could not start: {str(exc)[:200]}",
-            )
+        # Output goes to temporary files rather than pipes, and only a capped number of
+        # bytes is ever read back.
+        #
+        # `capture_output=True` would read the whole stream into this process's memory
+        # before any truncation could apply, so a submission that prints without
+        # stopping would exhaust the *host* rather than hitting the cap. The container's
+        # memory limit does not help there: those bytes are on the host side of the
+        # pipe. Spooling to disk bounds what reaches memory, and the wall clock limit
+        # bounds what reaches disk.
+        with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
+            try:
+                completed = subprocess.run(  # fixed argv, never a shell string
+                    argv,
+                    input=stdin.encode("utf-8"),
+                    stdout=out_file,
+                    stderr=err_file,
+                    # Slightly beyond the container's own limits, so this is the backstop
+                    # for a wedged client rather than the primary timeout.
+                    timeout=limits.timeout_seconds + 5,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                _force_remove(container_name)
+                return SandboxResult(
+                    executed=True,
+                    language=normalised,
+                    timed_out=True,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    stderr="Execution exceeded the time limit and was stopped.",
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                _force_remove(container_name)
+                log.warning("sandbox.failed", error=str(exc)[:200])
+                return SandboxResult(
+                    executed=False,
+                    language=normalised,
+                    unavailable_reason=f"Sandbox could not start: {str(exc)[:200]}",
+                )
 
-    stdout, out_cut = _truncate(completed.stdout, limits.output_bytes)
-    stderr, err_cut = _truncate(completed.stderr, limits.output_bytes)
+            # One byte beyond the cap, purely so truncation can be detected.
+            out_file.seek(0)
+            err_file.seek(0)
+            raw_stdout = out_file.read(limits.output_bytes + 1)
+            raw_stderr = err_file.read(limits.output_bytes + 1)
+
+    stdout, out_cut = _truncate(
+        raw_stdout.decode("utf-8", errors="replace"), limits.output_bytes
+    )
+    stderr, err_cut = _truncate(
+        raw_stderr.decode("utf-8", errors="replace"), limits.output_bytes
+    )
     duration_ms = int((time.monotonic() - started) * 1000)
 
     log.info(

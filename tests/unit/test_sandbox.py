@@ -339,3 +339,97 @@ class TestTheGradingNodeDegrades:
         ))
         result = grading.check_submitted_code(self._state("while True:\n    pass\n"))
         assert any("did not terminate" in note for note in result["interviewer_notes"])
+
+
+class TestOutputCannotExhaustTheHost:
+    """Regression: the output cap was applied after the whole stream was in memory.
+
+    `capture_output=True` reads the entire stream into this process before truncation
+    can apply, so a submission printing without stopping would exhaust the host's RAM
+    while every documented limit looked correct. The container's memory cap does not
+    help: those bytes are on the host side of the pipe.
+    """
+
+    def test_output_is_not_captured_through_a_pipe(self):
+        """Checked against the AST, not the source text.
+
+        A plain string search matches the comment explaining why `capture_output` is
+        avoided, so it passed while the code still used it. Parsing tests what runs.
+        """
+        import ast
+        import textwrap
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(sandbox.run_code)))
+        keywords = {
+            keyword.arg
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            for keyword in node.keywords
+        }
+        assert "capture_output" not in keywords, (
+            "capture_output buffers the whole stream before the cap can apply"
+        )
+        assert "stdout" in keywords, "output should be redirected to a file"
+
+    def test_only_the_capped_number_of_bytes_is_read(self):
+        """Every read of the output files must pass a size argument."""
+        import ast
+        import textwrap
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(sandbox.run_code)))
+        reads = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "read"
+        ]
+        assert reads, "output should be read back from the spooled files"
+        for call in reads:
+            assert call.args, "an unbounded read defeats the output cap entirely"
+
+    def test_truncation_marks_the_result(self):
+        text, cut = sandbox._truncate("x" * 100, 10)
+        assert cut is True
+        assert "truncated" in text
+        assert len(text) < 100
+
+    def test_output_within_the_cap_is_untouched(self):
+        text, cut = sandbox._truncate("hello", 100)
+        assert (text, cut) == ("hello", False)
+
+
+@pytest.mark.requires_docker
+class TestOutputLimitsAgainstARealDaemon:
+    @pytest.fixture(autouse=True)
+    def _require_docker(self):
+        sandbox.reset_sandbox_probe()
+        if not sandbox_available():
+            pytest.skip("Docker is not reachable; start Docker Desktop to run these")
+
+    def test_a_program_printing_endlessly_is_bounded(self):
+        """The real check: this used to be bounded only by the host running out of RAM."""
+        result = run_code(
+            "while True:\n    print('x' * 1000)\n",
+            "python",
+            limits=SandboxLimits(timeout_seconds=5, output_bytes=10_000),
+        )
+        assert result.executed
+        # Whether it timed out or was cut off, what came back must be small.
+        assert len(result.stdout) < 50_000, "output was not bounded"
+
+    def test_large_but_finite_output_is_truncated_and_flagged(self):
+        result = run_code(
+            "print('y' * 500_000)",
+            "python",
+            limits=SandboxLimits(timeout_seconds=10, output_bytes=5_000),
+        )
+        assert result.executed
+        assert result.truncated
+        assert len(result.stdout) < 20_000
+
+    def test_normal_output_survives_intact(self):
+        result = run_code("print('a short answer')", "python")
+        assert result.passed
+        assert "a short answer" in result.stdout
+        assert not result.truncated
