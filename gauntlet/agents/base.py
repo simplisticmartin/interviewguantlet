@@ -84,7 +84,7 @@ class Agent:
         # per-request timing cannot answer.
         with span(
             f"agent.{self.key}",
-            **{
+            {
                 "gauntlet.agent": self.key,
                 "gauntlet.prompt.name": template.name,
                 "gauntlet.prompt.version": template.version,

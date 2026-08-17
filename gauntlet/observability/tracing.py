@@ -125,18 +125,44 @@ def tracing_active() -> bool:
 
 
 @contextmanager
-def span(name: str, **attributes: Any) -> Iterator[Span]:
+def span(
+    name: str,
+    attributes: dict[str, Any] | None = None,
+    *,
+    expected: tuple[type[BaseException], ...] = (),
+) -> Iterator[Span]:
     """Start a span, recording exceptions and setting error status on the way out.
 
     Exceptions are recorded and re-raised, never swallowed: a span is a description of
     what happened, and a tracing layer that changes error handling is a liability.
+
+    Attributes are an explicit dict rather than keyword arguments. OpenTelemetry
+    attribute names are dotted and cannot be Python identifiers, so every call site was
+    already spelling them out, and with ``**kwargs`` a key named "expected" would have
+    been swallowed as the exception tuple.
+
+    ``expected`` lists exception types that are control flow rather than failure. They
+    are re-raised untouched and the span is left green. This is not a nicety: LangGraph
+    pauses a graph by raising, so without it every interview marked a span as failed on
+    every single turn, and a trace where normal operation is red is a trace nobody can
+    find a real error in.
     """
-    with tracer.start_as_current_span(name) as active:
-        for key, value in attributes.items():
+    # The SDK records exceptions and sets error status by itself unless told not to.
+    # Both are turned off and handled below, for two reasons: its automatic version
+    # cannot know that a GraphInterrupt is a pause rather than a failure, and leaving it
+    # on double-records every genuine error, once by the SDK and once here.
+    with tracer.start_as_current_span(
+        name, record_exception=False, set_status_on_exception=False
+    ) as active:
+        for key, value in (attributes or {}).items():
             if value is not None:
                 active.set_attribute(key, value)
         try:
             yield active
+        except expected:
+            # Deliberate control flow. Recorded as a normal outcome, not an error.
+            active.set_attribute("gauntlet.paused", True)
+            raise
         except Exception as exc:
             active.record_exception(exc)
             active.set_status(StatusCode.ERROR, str(exc)[:200])

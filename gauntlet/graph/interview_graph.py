@@ -29,6 +29,7 @@ from typing import Any
 import structlog
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph
 
 from gauntlet.config import get_settings
@@ -70,7 +71,12 @@ def traced(name: str, node: Any) -> Any:
     """
 
     def run(state: InterviewState, *args: Any, **kwargs: Any) -> Any:
-        with span(f"node.{name}", **{"gauntlet.node": name}) as active:
+        # GraphBubbleUp is how LangGraph pauses a graph, including the interrupt() the
+        # two wait nodes use on every turn. It is control flow, not a failure, and
+        # tracing it as an error made every normal interview look broken.
+        with span(
+            f"node.{name}", {"gauntlet.node": name}, expected=(GraphBubbleUp,)
+        ) as active:
             result = node(state, *args, **kwargs)
             # Which keys a node wrote is the single most useful thing to see when
             # reading a trace of a state machine.

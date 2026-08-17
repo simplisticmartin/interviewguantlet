@@ -149,7 +149,7 @@ class TestTracingIsInert:
         assert tracing_active() is False
 
     def test_a_span_runs_and_returns_the_body_value(self):
-        with span("probe", **{"gauntlet.test": "yes"}):
+        with span("probe", {"gauntlet.test": "yes"}):
             result = 21 * 2
         assert result == 42
 
@@ -159,7 +159,7 @@ class TestTracingIsInert:
             raise ValueError("boom")
 
     def test_none_attributes_are_skipped_rather_than_crashing(self):
-        with span("probe", **{"a": None, "b": 1}):
+        with span("probe", {"a": None, "b": 1}):
             pass
 
     def test_there_is_no_trace_id_when_nothing_is_collecting(self):
@@ -234,7 +234,7 @@ class TestWithARealSdk:
             trace_api.get_current_span()  # detach any lingering context
 
     def test_a_span_is_actually_recorded(self, collected):
-        with span("probe", **{"gauntlet.node": "select_question"}):
+        with span("probe", {"gauntlet.node": "select_question"}):
             pass
         spans = collected.get_finished_spans()
         assert [s.name for s in spans] == ["probe"]
@@ -303,3 +303,105 @@ class TestWithARealSdk:
         attributes = collected.get_finished_spans()[0].attributes
         assert attributes["gauntlet.node"] == "select_question"
         assert attributes["gauntlet.node.updates"] == "difficulty,slate"
+
+
+class TestPausingIsNotFailing:
+    """Regression: LangGraph pauses a graph by raising, and that was traced as an error.
+
+    Both wait nodes call interrupt() on every single turn, so every interview produced a
+    span marked ERROR with an exception attached. A trace where normal operation is red
+    is a trace nobody can find a real error in, which makes the whole feature worthless
+    rather than merely noisy.
+
+    The second half of the bug: the OpenTelemetry SDK records exceptions and sets error
+    status by itself unless told not to, so genuine errors were also being recorded
+    twice, once by the SDK and once by us.
+    """
+
+    @pytest.fixture
+    def collected(self):
+        sdk = pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        exporter = InMemorySpanExporter()
+        provider = sdk.TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        import gauntlet.observability.tracing as tracing
+
+        original = tracing.tracer
+        tracing.tracer = provider.get_tracer("test")
+        try:
+            yield exporter
+        finally:
+            tracing.tracer = original
+
+    def test_an_expected_exception_leaves_the_span_green(self, collected):
+        class PauseError(Exception):
+            pass
+
+        with pytest.raises(PauseError), span("probe", expected=(PauseError,)):
+            raise PauseError()
+
+        recorded = collected.get_finished_spans()[0]
+        assert recorded.status.status_code.name != "ERROR"
+        assert recorded.attributes["gauntlet.paused"] is True
+        assert not [e for e in recorded.events if e.name == "exception"]
+
+    def test_an_expected_exception_is_still_re_raised(self, collected):
+        """Tracing observes. It must not swallow the control flow it is watching."""
+
+        class PauseError(Exception):
+            pass
+
+        with pytest.raises(PauseError), span("probe", expected=(PauseError,)):
+            raise PauseError()
+
+    def test_a_real_error_is_recorded_exactly_once(self, collected):
+        """Twice was the SDK and this module both recording the same exception."""
+        with pytest.raises(ValueError), span("probe"):
+            raise ValueError("boom")
+
+        recorded = collected.get_finished_spans()[0]
+        assert recorded.status.status_code.name == "ERROR"
+        assert len([e for e in recorded.events if e.name == "exception"]) == 1
+
+    def test_an_unexpected_exception_type_is_still_an_error(self, collected):
+        class PauseError(Exception):
+            pass
+
+        with pytest.raises(RuntimeError), span("probe", expected=(PauseError,)):
+            raise RuntimeError("genuinely broken")
+
+        assert collected.get_finished_spans()[0].status.status_code.name == "ERROR"
+
+    def test_a_real_interview_produces_no_error_spans(self, collected):
+        """The end to end check, because this bug only appeared when the graph ran."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from gauntlet.graph.interview_graph import build_interview_graph
+
+        app = build_interview_graph().compile(checkpointer=InMemorySaver())
+        app.invoke(
+            {
+                "session_id": "trace-probe",
+                "candidate_id": "c1",
+                "interview_type": "java",
+                "mode": "standard",
+                "target_company": "google",
+                "target_level": "senior",
+                "resume_text": "Backend engineer, Java.",
+                "job_description": "Senior backend engineer.",
+            },
+            {"configurable": {"thread_id": "trace-probe"}},
+        )
+
+        spans = collected.get_finished_spans()
+        errored = [s for s in spans if s.status.status_code.name == "ERROR"]
+        assert not errored, f"normal interview produced error spans: {[s.name for s in errored]}"
+
+        paused = [s.name for s in spans if s.attributes.get("gauntlet.paused")]
+        assert "node.wait_for_candidate" in paused, "the interrupt should be marked a pause"

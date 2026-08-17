@@ -147,7 +147,7 @@ def create_app() -> FastAPI:
         with (
             span(
                 f"{request.method} {request.url.path}",
-                **{
+                {
                     "http.request.method": request.method,
                     "url.path": request.url.path,
                 },
