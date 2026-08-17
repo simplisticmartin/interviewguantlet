@@ -23,7 +23,15 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from gauntlet.db.models import Candidate, Question, QuestionSubmission, User
-from gauntlet.ingestion.pipeline import Outcome, PipelineResult, Submission, process
+from gauntlet.ingestion.dedup import QuestionCandidate
+from gauntlet.ingestion.pipeline import (
+    Outcome,
+    PipelineResult,
+    Submission,
+    corpus_candidates,
+    process,
+)
+from gauntlet.ingestion.sources import ImportReport, parse
 
 log = structlog.get_logger(__name__)
 
@@ -36,6 +44,27 @@ class ContributionError(RuntimeError):
         self.reasons = reasons or []
 
 
+def _pending_candidates(session: Session) -> list[QuestionCandidate]:
+    """Submissions already awaiting review, as deduplication candidates.
+
+    Without these, deduplication only compares against the authored corpus, so a question
+    fifty people were asked produces fifty identical pending rows and a reviewer has to
+    notice by hand. The queue is where duplicates are most costly, because every one of
+    them spends someone's attention.
+    """
+    rows = session.execute(
+        select(QuestionSubmission).where(QuestionSubmission.status == "pending")
+    ).scalars()
+    return [
+        QuestionCandidate(
+            id=f"submission:{row.id}",
+            text=row.question,
+            concept_keys=tuple(row.concept_keys),
+        )
+        for row in rows
+    ]
+
+
 def submit(
     session: Session, candidate: Candidate, submission: Submission
 ) -> QuestionSubmission:
@@ -44,7 +73,8 @@ def submit(
     Raises :class:`ContributionError` when the pipeline refuses it, so the caller can
     return the reasons rather than storing something that was never acceptable.
     """
-    result = process(submission)
+    # Deduplicate against the authored corpus *and* the review queue.
+    result = process(submission, corpus=corpus_candidates() + _pending_candidates(session))
 
     if result.outcome is Outcome.REJECTED:
         log.info("contribution.rejected", candidate_id=str(candidate.id))
@@ -195,3 +225,55 @@ def approve(
         reviewer=str(reviewer.id),
     )
     return question
+
+
+def import_notes(
+    session: Session,
+    candidate: Candidate,
+    payload: str,
+    *,
+    source_key: str = "own_notes",
+) -> ImportReport:
+    """Import a file of a candidate's own notes, persisting every accepted record.
+
+    This exists because the parsing side cannot persist: it has no session and no
+    candidate to attribute rows to. An earlier version reported records as "queued for
+    review" while writing nothing, which is worse than not having the feature, since the
+    contributor is told their notes were accepted and the notes are simply gone.
+
+    Each record goes through :func:`submit`, so bulk import gets no shortcut: the same
+    screening, deduplication and review queue apply per record.
+    """
+    submissions = parse(payload, source_key=source_key)
+    report = ImportReport(source=source_key, parsed=len(submissions))
+
+    for submission in submissions:
+        submission.contributor_id = str(candidate.id)
+        try:
+            row = submit(session, candidate, submission)
+        except ContributionError as exc:
+            report.rejected += 1
+            report.rejections.append(
+                {
+                    # Truncated deliberately: echoing back refused content, which may be
+                    # exactly the personal data it was refused for, defeats refusing it.
+                    "question": submission.question[:80],
+                    "reason": "; ".join(exc.reasons)[:300] or str(exc),
+                }
+            )
+            continue
+
+        if row.status == "duplicate":
+            report.duplicates += 1
+        else:
+            report.queued += 1
+
+    log.info(
+        "contribution.imported",
+        candidate_id=str(candidate.id),
+        parsed=report.parsed,
+        queued=report.queued,
+        duplicates=report.duplicates,
+        rejected=report.rejected,
+    )
+    return report

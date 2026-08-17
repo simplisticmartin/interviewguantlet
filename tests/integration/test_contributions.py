@@ -12,6 +12,7 @@ Raw personal data must not reach the database at all.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -229,3 +230,103 @@ class TestModerationDecisions:
             f"/moderation/submissions/{created.json()['id']}", json={"decision": "approve"}
         )
         assert decided.status_code == 409
+
+
+class TestBulkImportActuallyPersists:
+    """Regression: the import endpoint reported success and wrote nothing.
+
+    `import_payload` screened records and counted them, and the response told the
+    contributor their questions were "queued for review", while nothing ever reached the
+    database. That is worse than not having the feature: the notes are gone and the
+    contributor has been told they are safe. The function is now named `preview` for what
+    it does, and persisting lives in the service where a session exists.
+    """
+
+    NOTES = json.dumps(
+        [
+            {
+                "question": (
+                    "How would you migrate a live table to a new schema without "
+                    "downtime or losing writes?"
+                ),
+                "company": "stripe",
+            },
+            {
+                "question": (
+                    "Explain how you would detect and recover from a poisoned message "
+                    "stuck at the head of a queue."
+                )
+            },
+        ]
+    )
+
+    def test_imported_questions_reach_the_review_queue(self, contributor: TestClient):
+        response = contributor.post(
+            "/contributions/import", json={"payload": self.NOTES}
+        )
+        assert response.status_code == 202, response.text
+        assert response.json()["queued"] == 2
+
+        # The claim in the response must be true of the database.
+        mine = contributor.get("/contributions/mine").json()
+        assert len(mine) >= 2
+
+    def test_the_count_reported_matches_what_was_stored(self, contributor: TestClient):
+        before = len(contributor.get("/contributions/mine").json())
+        body = contributor.post(
+            "/contributions/import", json={"payload": self.NOTES}
+        ).json()
+        after = len(contributor.get("/contributions/mine").json())
+        assert after - before == body["queued"] + body["duplicates"]
+
+    def test_refused_records_are_not_stored(self, contributor: TestClient):
+        payload = json.dumps(
+            [{"question": "This whole set is confidential and under NDA, but here it is."}]
+        )
+        body = contributor.post("/contributions/import", json={"payload": payload}).json()
+        assert body["rejected"] == 1
+        assert body["queued"] == 0
+
+    def test_an_unknown_source_is_refused(self, contributor: TestClient):
+        response = contributor.post(
+            "/contributions/import", json={"payload": "[]", "source": "glassdoor"}
+        )
+        assert response.status_code == 422
+
+
+class TestTheQueueDeduplicatesAgainstItself:
+    """Regression: submissions were only compared against the authored corpus.
+
+    A question fifty people were asked produced fifty identical pending rows, and a
+    reviewer had to notice by hand. The queue is where duplicates cost the most, because
+    each one spends a person's attention.
+    """
+
+    QUESTION = (
+        "How would you design a system that deduplicates events arriving out of order "
+        "from several producers at once?"
+    )
+
+    def test_the_same_question_submitted_twice_is_caught(self, contributor: TestClient):
+        first = contributor.post("/contributions", json={"question": self.QUESTION})
+        assert first.status_code == 202
+        assert first.json()["status"] == "pending"
+
+        second = contributor.post("/contributions", json={"question": self.QUESTION})
+        assert second.status_code == 202
+        assert second.json()["status"] == "duplicate", (
+            "a question already sitting in the review queue was queued a second time"
+        )
+
+    def test_a_different_question_is_still_accepted(self, contributor: TestClient):
+        contributor.post("/contributions", json={"question": self.QUESTION})
+        other = contributor.post(
+            "/contributions",
+            json={
+                "question": (
+                    "Walk me through choosing a partition key for a table that is read "
+                    "far more often than it is written."
+                )
+            },
+        )
+        assert other.json()["status"] == "pending"

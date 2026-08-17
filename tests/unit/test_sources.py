@@ -17,7 +17,7 @@ from gauntlet.ingestion.sources import (
     ImportReport,
     OwnNotesSource,
     get_source,
-    import_payload,
+    preview,
     refused_sources,
 )
 
@@ -115,9 +115,12 @@ class TestMarkdownNotes:
 class TestBulkImportGetsNoShortcut:
     """Volume is a reason for more scrutiny, not less."""
 
-    def test_imported_questions_are_queued_not_published(self):
+    def test_preview_screens_without_storing_anything(self):
+        """`preview` is named for what it does. It reports; persisting is the service's
+        job, and conflating the two is how a contributor gets told their notes were
+        accepted when nothing was written."""
         payload = json.dumps([{"question": GOOD_QUESTION}])
-        report = import_payload(payload, contributor_id="candidate-1")
+        report = preview(payload, contributor_id="candidate-1")
         assert report.queued == 1
         assert report.rejected == 0
 
@@ -129,7 +132,7 @@ class TestBulkImportGetsNoShortcut:
                 {"question": "This was under NDA but here is their whole question set."},
             ]
         )
-        report = import_payload(payload)
+        report = preview(payload)
         assert report.queued == 1
         assert report.rejected == 1
         assert report.rejections[0]["reason"]
@@ -138,7 +141,7 @@ class TestBulkImportGetsNoShortcut:
         payload = json.dumps(
             [{"question": f"My interviewer was Sarah. {SECOND_QUESTION}"}]
         )
-        report = import_payload(payload)
+        report = preview(payload)
         assert report.queued == 1
 
     def test_questions_already_in_the_bank_are_counted_as_duplicates(self):
@@ -152,14 +155,14 @@ class TestBulkImportGetsNoShortcut:
                 }
             ]
         )
-        report = import_payload(payload)
+        report = preview(payload)
         assert report.duplicates == 1
         assert report.queued == 0
 
     def test_a_rejection_report_does_not_reproduce_what_it_refused(self):
         """Echoing back refused content defeats refusing it."""
         long_secret = "Under NDA. " + ("secret detail " * 40)
-        report = import_payload(json.dumps([{"question": long_secret}]))
+        report = preview(json.dumps([{"question": long_secret}]))
         assert report.rejected == 1
         assert len(report.rejections[0]["question"]) <= 80
 
@@ -171,14 +174,14 @@ class TestBulkImportGetsNoShortcut:
                 {"question": "under NDA, confidential material"},
             ]
         )
-        report = import_payload(payload)
+        report = preview(payload)
         assert report.parsed == 3
         assert report.queued + report.duplicates + report.rejected == 3
         assert "parsed" in report.summary()
 
     def test_an_unknown_source_is_refused(self):
         with pytest.raises(ValueError, match="Unknown source"):
-            import_payload("[]", source_key="glassdoor")
+            preview("[]", source_key="glassdoor")
 
 
 class TestTermsAreRecorded:

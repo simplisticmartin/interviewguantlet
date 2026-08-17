@@ -147,7 +147,7 @@ def estimate_difficulty(concept_keys: list[str], stated: int | None) -> int:
     return max(floors) if floors else 3
 
 
-def _corpus_candidates() -> list[QuestionCandidate]:
+def corpus_candidates() -> list[QuestionCandidate]:
     return [
         QuestionCandidate(
             id=seed.slug,
@@ -215,7 +215,7 @@ def process(
     candidate = QuestionCandidate(
         id="__submission__", text=cleaned, concept_keys=tuple(concept_keys)
     )
-    against = corpus if corpus is not None else _corpus_candidates()
+    against = corpus if corpus is not None else corpus_candidates()
     matches = find_duplicates_of(candidate, against)
 
     # Anything close but under the merge threshold is handed to the reviewer rather than

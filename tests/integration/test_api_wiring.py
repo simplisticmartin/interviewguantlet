@@ -80,6 +80,26 @@ class TestDependencyWiring:
         response = client.post("/contributions", json={"question": "a" * 40})
         assert response.status_code == 401
 
+    def test_bulk_import_requires_auth_and_a_session(self, client: TestClient):
+        """Bulk import writes rows, so it must resolve a database session.
+
+        It originally took neither, which is how it managed to report questions as
+        queued while storing nothing. A route that persists but never asks for a
+        session is the shape of that bug.
+        """
+        response = client.post("/contributions/import", json={"payload": "[]"})
+        assert response.status_code == 401
+
+    def test_the_import_route_depends_on_the_database(self):
+        """Checked structurally, since the behaviour needs Postgres to observe."""
+        import inspect
+
+        from apps.api.routers.contributions import bulk_import
+
+        parameters = inspect.signature(bulk_import).parameters
+        assert "session" in parameters, "bulk import cannot persist without a session"
+        assert "candidate" in parameters, "imported rows need an owner"
+
     def test_companies_are_served_from_code_not_the_database(self, client: TestClient):
         """The catalogue is in-code, so it must work with no database at all."""
         response = client.get("/companies")

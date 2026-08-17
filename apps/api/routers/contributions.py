@@ -29,7 +29,6 @@ from apps.api.schemas import (
 )
 from gauntlet.db.models import Candidate, QuestionSubmission, User
 from gauntlet.ingestion.pipeline import Submission
-from gauntlet.ingestion.sources import import_payload
 from gauntlet.services import contributions
 from gauntlet.services.contributions import ContributionError
 
@@ -140,7 +139,8 @@ def contribute(
 )
 def bulk_import(
     payload: BulkImportRequest,
-    _: Candidate = Depends(get_current_candidate),
+    session: Session = Depends(get_db),
+    candidate: Candidate = Depends(get_current_candidate),
 ) -> BulkImportResponse:
     """Import a file of your own interview notes.
 
@@ -148,7 +148,9 @@ def bulk_import(
     single submission. Nothing is published, and a large tidy file buys no trust.
     """
     try:
-        report = import_payload(payload.payload, source_key=payload.source)
+        report = contributions.import_notes(
+            session, candidate, payload.payload, source_key=payload.source
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

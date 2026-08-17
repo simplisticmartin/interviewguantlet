@@ -216,13 +216,29 @@ def get_source(key: str) -> Source | None:
     return SOURCES.get(key.strip().lower())
 
 
-def import_payload(
+def parse(payload: str, *, source_key: str = "own_notes") -> list[Submission]:
+    """Parse a payload into submissions, checking the source is one we may use."""
+    source = get_source(source_key)
+    if source is None:
+        raise ValueError(f"Unknown source '{source_key}'. Known: {', '.join(SOURCES)}.")
+    if not source.terms.permits_reuse:
+        raise ValueError(
+            f"Source '{source_key}' does not permit reuse: {source.terms.notes}"
+        )
+    return source.read(payload)
+
+
+def preview(
     payload: str, *, source_key: str = "own_notes", contributor_id: str | None = None
 ) -> ImportReport:
-    """Parse a payload and run every record through the contribution pipeline.
+    """Screen a payload and report what would happen, storing nothing.
 
-    Bulk import gets no shortcut. Each record is screened, tagged and deduplicated
-    exactly as a single submission is, and lands in the same review queue.
+    Deliberately named for what it does. This was originally called ``import_payload``
+    and reported records as "queued for review" while writing nothing to the database,
+    which is a worse failure than not having the feature: the contributor is told their
+    notes were accepted and they are simply gone. Persisting lives in
+    :func:`gauntlet.services.contributions.import_notes`, which needs a session and a
+    candidate to attribute the rows to.
     """
     source = get_source(source_key)
     if source is None:
